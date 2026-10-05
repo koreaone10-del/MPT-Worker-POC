@@ -1,0 +1,467 @@
+name: MPT Worker v1
+
+on:
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: "Test job ID"
+        required: true
+        default: "manual-test-001"
+        type: string
+
+      video_subject:
+        description: "Video subject"
+        required: true
+        default: "How artificial intelligence is changing everyday life"
+        type: string
+
+      aspect:
+        description: "Video aspect ratio"
+        required: true
+        default: "9:16"
+        type: choice
+        options:
+          - "9:16"
+          - "16:9"
+          - "1:1"
+
+      video_count:
+        description: "Number of videos"
+        required: true
+        default: "1"
+        type: string
+
+  repository_dispatch:
+    types:
+      - mpt_job
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mpt-worker-${{ github.event.client_payload.job_id || inputs.job_id || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  worker:
+    name: Process MPT Job
+    runs-on: ubuntu-24.04
+    timeout-minutes: 330
+
+    steps:
+      - name: Worker started
+        shell: bash
+        run: |
+          echo "=============================================="
+          echo "        MPT WORKER v1"
+          echo "=============================================="
+          echo ""
+          echo "Repository : $GITHUB_REPOSITORY"
+          echo "Run ID     : $GITHUB_RUN_ID"
+          echo "Event      : $GITHUB_EVENT_NAME"
+          echo "Started    : $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+          echo ""
+
+      - name: Read job payload
+        id: job
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_JOB_ID: ${{ github.event.client_payload.job_id }}
+          DISPATCH_SUBJECT: ${{ github.event.client_payload.video_subject }}
+          DISPATCH_ASPECT: ${{ github.event.client_payload.aspect }}
+          DISPATCH_COUNT: ${{ github.event.client_payload.video_count }}
+          MANUAL_JOB_ID: ${{ inputs.job_id }}
+          MANUAL_SUBJECT: ${{ inputs.video_subject }}
+          MANUAL_ASPECT: ${{ inputs.aspect }}
+          MANUAL_COUNT: ${{ inputs.video_count }}
+        run: |
+          set -euo pipefail
+
+          if [ "$EVENT_NAME" = "repository_dispatch" ]; then
+            JOB_ID="${DISPATCH_JOB_ID:-}"
+            VIDEO_SUBJECT="${DISPATCH_SUBJECT:-}"
+            ASPECT="${DISPATCH_ASPECT:-9:16}"
+            VIDEO_COUNT="${DISPATCH_COUNT:-1}"
+          else
+            JOB_ID="${MANUAL_JOB_ID:-manual-test-001}"
+            VIDEO_SUBJECT="${MANUAL_SUBJECT:-How artificial intelligence is changing everyday life}"
+            ASPECT="${MANUAL_ASPECT:-9:16}"
+            VIDEO_COUNT="${MANUAL_COUNT:-1}"
+          fi
+
+          if [ -z "$JOB_ID" ]; then
+            echo "ERROR: job_id is empty"
+            exit 1
+          fi
+
+          if [ -z "$VIDEO_SUBJECT" ]; then
+            echo "ERROR: video_subject is empty"
+            exit 1
+          fi
+
+          case "$ASPECT" in
+            "9:16"|"16:9"|"1:1")
+              ;;
+            *)
+              echo "ERROR: unsupported aspect ratio: $ASPECT"
+              exit 1
+              ;;
+          esac
+
+          if ! [[ "$VIDEO_COUNT" =~ ^[0-9]+$ ]]; then
+            echo "ERROR: video_count must be numeric"
+            exit 1
+          fi
+
+          if [ "$VIDEO_COUNT" -lt 1 ]; then
+            echo "ERROR: video_count must be >= 1"
+            exit 1
+          fi
+
+          echo "JOB_ID=$JOB_ID" >> "$GITHUB_OUTPUT"
+          echo "VIDEO_SUBJECT=$VIDEO_SUBJECT" >> "$GITHUB_OUTPUT"
+          echo "ASPECT=$ASPECT" >> "$GITHUB_OUTPUT"
+          echo "VIDEO_COUNT=$VIDEO_COUNT" >> "$GITHUB_OUTPUT"
+
+          echo "=============================================="
+          echo "JOB RECEIVED"
+          echo "=============================================="
+          echo "Job ID       : $JOB_ID"
+          echo "Subject      : $VIDEO_SUBJECT"
+          echo "Aspect       : $ASPECT"
+          echo "Video count  : $VIDEO_COUNT"
+          echo "=============================================="
+
+      - name: Inspect runner
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=============================================="
+          echo "RUNNER INFORMATION"
+          echo "=============================================="
+
+          echo "CPU:"
+          nproc
+
+          echo ""
+          echo "MEMORY:"
+          free -h
+
+          echo ""
+          echo "DISK:"
+          df -h /
+
+          echo ""
+          echo "OS:"
+          cat /etc/os-release | head -n 8
+
+      - name: Install system dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=============================================="
+          echo "INSTALLING SYSTEM DEPENDENCIES"
+          echo "=============================================="
+
+          sudo apt-get update
+          sudo apt-get install -y \
+            ffmpeg \
+            git \
+            curl \
+            ca-certificates \
+            imagemagick
+
+          echo ""
+          echo "FFmpeg:"
+          ffmpeg -version | head -n 1
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Installing uv..."
+
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+          export PATH="$HOME/.local/bin:$PATH"
+
+          uv --version
+
+      - name: Clone MoneyPrinterTurbo
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=============================================="
+          echo "CLONING MONEYPRINTERTURBO"
+          echo "=============================================="
+
+          git clone --depth 1 \
+            https://github.com/harry0703/MoneyPrinterTurbo.git \
+            mpt
+
+          cd mpt
+
+          echo "MPT commit:"
+          git rev-parse HEAD
+
+          echo ""
+          echo "MPT files:"
+          ls -la
+
+      - name: Install MPT environment
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cd mpt
+
+          echo "=============================================="
+          echo "INSTALLING MPT ENVIRONMENT"
+          echo "=============================================="
+
+          uv sync --frozen
+
+          echo ""
+          echo "Python:"
+          uv run python --version
+
+          echo ""
+          echo "MPT environment ready."
+
+      - name: Create test source video
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cd mpt
+
+          mkdir -p test_assets
+
+          echo "=============================================="
+          echo "CREATING LOCAL TEST SOURCE"
+          echo "=============================================="
+
+          ffmpeg -y \
+            -f lavfi \
+            -i "testsrc2=size=720x1280:rate=30" \
+            -t 8 \
+            -pix_fmt yuv420p \
+            -c:v libx264 \
+            -preset veryfast \
+            -crf 28 \
+            test_assets/test_source.mp4
+
+          echo ""
+          echo "Test source created."
+
+          ffprobe \
+            -v error \
+            -show_entries format=duration \
+            -show_entries stream=width,height,r_frame_rate \
+            -of default=noprint_wrappers=1 \
+            test_assets/test_source.mp4
+
+      - name: Verify MPT CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cd mpt
+
+          echo "=============================================="
+          echo "VERIFYING MPT CLI"
+          echo "=============================================="
+
+          uv run python cli.py --help > /tmp/mpt-help.txt
+
+          grep -q "video-subject" /tmp/mpt-help.txt
+          grep -q "video-source" /tmp/mpt-help.txt
+          grep -q "video-materials" /tmp/mpt-help.txt
+
+          echo "MPT CLI verification: OK"
+
+      - name: Generate video with MPT
+        shell: bash
+        env:
+          JOB_ID: ${{ steps.job.outputs.JOB_ID }}
+          VIDEO_SUBJECT: ${{ steps.job.outputs.VIDEO_SUBJECT }}
+          ASPECT: ${{ steps.job.outputs.ASPECT }}
+          VIDEO_COUNT: ${{ steps.job.outputs.VIDEO_COUNT }}
+        run: |
+          set -euo pipefail
+
+          cd mpt
+
+          echo "=============================================="
+          echo "MPT VIDEO GENERATION"
+          echo "=============================================="
+          echo "Job ID      : $JOB_ID"
+          echo "Subject     : $VIDEO_SUBJECT"
+          echo "Aspect      : $ASPECT"
+          echo "Video count : $VIDEO_COUNT"
+          echo "=============================================="
+
+          uv run python cli.py \
+            --video-script "$VIDEO_SUBJECT" \
+            --video-source local \
+            --video-materials "./test_assets/test_source.mp4" \
+            --video-aspect "$ASPECT" \
+            --video-count "$VIDEO_COUNT" \
+            --voice-name no-voice \
+            --no-subtitle-enabled \
+            --stop-at video
+
+      - name: Find generated video
+        id: output
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cd mpt
+
+          echo "=============================================="
+          echo "SEARCHING FOR GENERATED VIDEO"
+          echo "=============================================="
+
+          find storage/tasks -type f -name "*.mp4" -print | sort
+
+          VIDEO_FILE="$(find storage/tasks -type f -name "final-*.mp4" -print | sort | head -n 1)"
+
+          if [ -z "$VIDEO_FILE" ]; then
+            echo "ERROR: final MP4 not found"
+            exit 1
+          fi
+
+          echo ""
+          echo "Generated video:"
+          echo "$VIDEO_FILE"
+
+          echo "VIDEO_FILE=$VIDEO_FILE" >> "$GITHUB_OUTPUT"
+
+      - name: Verify generated MP4
+        shell: bash
+        env:
+          VIDEO_FILE: ${{ steps.output.outputs.VIDEO_FILE }}
+        run: |
+          set -euo pipefail
+
+          cd mpt
+
+          echo "=============================================="
+          echo "VERIFYING GENERATED MP4"
+          echo "=============================================="
+
+          if [ ! -f "$VIDEO_FILE" ]; then
+            echo "ERROR: output file does not exist"
+            exit 1
+          fi
+
+          echo ""
+          echo "File:"
+          ls -lh "$VIDEO_FILE"
+
+          echo ""
+          echo "Video information:"
+
+          ffprobe \
+            -v error \
+            -show_entries \
+            stream=codec_name,width,height,r_frame_rate \
+            -show_entries \
+            format=duration,size \
+            -of default=noprint_wrappers=1 \
+            "$VIDEO_FILE"
+
+          echo ""
+          echo "MP4 verification: SUCCESS"
+
+      - name: Upload generated video
+        uses: actions/upload-artifact@v6
+        with:
+          name: mpt-worker-${{ steps.job.outputs.JOB_ID }}
+          path: mpt/${{ steps.output.outputs.VIDEO_FILE }}
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Upload MPT task files
+        uses: actions/upload-artifact@v6
+        with:
+          name: mpt-task-${{ steps.job.outputs.JOB_ID }}
+          path: |
+            mpt/storage/tasks/**
+          if-no-files-found: warn
+          retention-days: 1
+
+      - name: Worker success report
+        shell: bash
+        env:
+          VIDEO_FILE: ${{ steps.output.outputs.VIDEO_FILE }}
+        run: |
+          set -euo pipefail
+
+          echo ""
+          echo "=============================================="
+          echo "       MPT WORKER v1 — SUCCESS"
+          echo "=============================================="
+          echo ""
+          echo "Job ID:"
+          echo "${{ steps.job.outputs.JOB_ID }}"
+          echo ""
+          echo "Subject:"
+          echo "${{ steps.job.outputs.VIDEO_SUBJECT }}"
+          echo ""
+          echo "Aspect:"
+          echo "${{ steps.job.outputs.ASPECT }}"
+          echo ""
+          echo "Video:"
+          echo "$VIDEO_FILE"
+          echo ""
+          echo "Status:"
+          echo "COMPLETED"
+          echo ""
+          echo "=============================================="
+
+      - name: Final resource report
+        if: always()
+        shell: bash
+        run: |
+          echo ""
+          echo "=============================================="
+          echo "FINAL RESOURCE REPORT"
+          echo "=============================================="
+
+          echo "CPU:"
+          nproc
+
+          echo ""
+          echo "RAM:"
+          free -h
+
+          echo ""
+          echo "DISK:"
+          df -h /
+
+          echo ""
+          echo "Python:"
+          python --version || true
+
+          echo ""
+          echo "FFmpeg:"
+          ffmpeg -version | head -n 1 || true
+
+          echo ""
+          echo "=============================================="
+          echo "MPT WORKER v1 FINISHED"
+          echo "=============================================="
