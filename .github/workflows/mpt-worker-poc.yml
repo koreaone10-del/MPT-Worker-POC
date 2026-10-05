@@ -1,0 +1,115 @@
+name: MPT Worker POC
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_mpt_smoke:
+        description: "Install MoneyPrinterTurbo and run smoke test"
+        required: true
+        default: "true"
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  worker-poc:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Inspect runner
+        run: |
+          echo "===== CPU ====="
+          nproc
+          lscpu | sed -n '1,25p'
+
+          echo "===== RAM ====="
+          free -h
+
+          echo "===== DISK ====="
+          df -h /
+
+          echo "===== OS ====="
+          cat /etc/os-release
+
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg git curl ca-certificates
+          ffmpeg -version | head -n 1
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install yt-dlp
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --no-cache-dir yt-dlp
+          yt-dlp --version
+
+      - name: Clone MoneyPrinterTurbo
+        if: ${{ inputs.run_mpt_smoke }}
+        run: |
+          git clone --depth 1 \
+            https://github.com/harry0703/MoneyPrinterTurbo.git \
+            mpt
+
+          cd mpt
+          git rev-parse HEAD
+
+      - name: Install MPT dependencies
+        if: ${{ inputs.run_mpt_smoke }}
+        run: |
+          cd mpt
+          python -m pip install --upgrade pip
+          python -m pip install --no-cache-dir -r requirements.txt
+
+      - name: MPT smoke test
+        if: ${{ inputs.run_mpt_smoke }}
+        run: |
+          cd mpt
+
+          echo "===== Python ====="
+          python --version
+
+          echo "===== FFmpeg ====="
+          ffmpeg -version | head -n 1
+
+          echo "===== MPT files ====="
+          ls -la
+
+          echo "===== Python imports ====="
+          python - <<'PY'
+          import sys
+          print("Python:", sys.version)
+
+          import requests
+          print("requests: OK")
+
+          import ffmpeg
+          print("ffmpeg-python: OK")
+
+          print("MPT dependency smoke test: OK")
+          PY
+
+      - name: Final resource snapshot
+        run: |
+          echo "===== FINAL CPU ====="
+          nproc
+
+          echo "===== FINAL RAM ====="
+          free -h
+
+          echo "===== FINAL DISK ====="
+          df -h /
+
+          echo "================================"
+          echo "MPT WORKER POC PASSED"
+          echo "================================"
