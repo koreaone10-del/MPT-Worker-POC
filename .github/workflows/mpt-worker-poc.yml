@@ -1,20 +1,14 @@
-name: MPT Worker POC
+name: MPT Video Generation POC
 
 on:
   workflow_dispatch:
-    inputs:
-      run_mpt_smoke:
-        description: "Install MoneyPrinterTurbo and run smoke test"
-        required: true
-        default: true
-        type: boolean
 
 permissions:
   contents: read
 
 jobs:
-  worker-poc:
-    name: MoneyPrinterTurbo Worker Test
+  mpt-video-test:
+    name: Generate First MPT Video
     runs-on: ubuntu-24.04
     timeout-minutes: 360
 
@@ -29,35 +23,30 @@ jobs:
 
 
       # ==========================================================
-      # 2. INSPECT RUNNER
+      # 2. RUNNER INFORMATION
       # ==========================================================
 
       - name: Inspect runner
         run: |
           echo "=========================================="
-          echo "GITHUB RUNNER INFORMATION"
+          echo "RUNNER INFORMATION"
           echo "=========================================="
 
           echo ""
-          echo "===== CPU ====="
+          echo "CPU:"
           nproc
-          lscpu | sed -n '1,25p'
 
           echo ""
-          echo "===== MEMORY ====="
+          echo "RAM:"
           free -h
 
           echo ""
-          echo "===== DISK ====="
+          echo "DISK:"
           df -h /
 
           echo ""
-          echo "===== OS ====="
+          echo "OS:"
           cat /etc/os-release
-
-          echo ""
-          echo "===== KERNEL ====="
-          uname -a
 
 
       # ==========================================================
@@ -67,7 +56,7 @@ jobs:
       - name: Install system dependencies
         run: |
           echo "=========================================="
-          echo "INSTALLING SYSTEM DEPENDENCIES"
+          echo "INSTALL SYSTEM DEPENDENCIES"
           echo "=========================================="
 
           sudo apt-get update
@@ -80,23 +69,16 @@ jobs:
             imagemagick
 
           echo ""
-          echo "===== FFmpeg ====="
-          which ffmpeg
+          echo "FFmpeg:"
           ffmpeg -version | head -n 1
 
           echo ""
-          echo "===== FFprobe ====="
-          which ffprobe
+          echo "FFprobe:"
           ffprobe -version | head -n 1
-
-          echo ""
-          echo "===== ImageMagick ====="
-          which convert || true
-          convert --version | head -n 1 || true
 
 
       # ==========================================================
-      # 4. SETUP PYTHON 3.11
+      # 4. PYTHON 3.11
       # ==========================================================
 
       - name: Setup Python 3.11
@@ -106,68 +88,24 @@ jobs:
 
 
       # ==========================================================
-      # 5. VERIFY PYTHON
-      # ==========================================================
-
-      - name: Verify Python
-        run: |
-          echo "=========================================="
-          echo "PYTHON"
-          echo "=========================================="
-
-          python --version
-
-          echo ""
-          echo "Python executable:"
-          python -c "import sys; print(sys.executable)"
-
-          echo ""
-          echo "Pip:"
-          python -m pip --version
-
-
-      # ==========================================================
-      # 6. INSTALL UV
+      # 5. INSTALL UV
       # ==========================================================
 
       - name: Install uv
         run: |
-          echo "=========================================="
-          echo "INSTALLING UV"
-          echo "=========================================="
-
           python -m pip install --upgrade pip
-
           python -m pip install uv
 
           echo ""
-          echo "uv version:"
+          echo "uv:"
           uv --version
 
 
       # ==========================================================
-      # 7. INSTALL YT-DLP
-      # ==========================================================
-
-      - name: Install yt-dlp
-        run: |
-          echo "=========================================="
-          echo "INSTALLING YT-DLP"
-          echo "=========================================="
-
-          python -m pip install --no-cache-dir yt-dlp
-
-          echo ""
-          echo "yt-dlp version:"
-          yt-dlp --version
-
-
-      # ==========================================================
-      # 8. CLONE MONEYPRINTERTURBO
+      # 6. CLONE MPT
       # ==========================================================
 
       - name: Clone MoneyPrinterTurbo
-        if: ${{ inputs.run_mpt_smoke }}
         run: |
           echo "=========================================="
           echo "CLONING MONEYPRINTERTURBO"
@@ -181,352 +119,279 @@ jobs:
           cd mpt
 
           echo ""
-          echo "===== MPT DIRECTORY ====="
-          pwd
-
-          echo ""
-          echo "===== MPT COMMIT ====="
+          echo "MPT commit:"
           git rev-parse HEAD
 
-          echo ""
-          echo "===== MPT FILES ====="
-          ls -la
-
 
       # ==========================================================
-      # 9. VERIFY MPT PROJECT FILES
+      # 7. INSTALL MPT ENVIRONMENT
       # ==========================================================
 
-      - name: Verify MPT project files
-        if: ${{ inputs.run_mpt_smoke }}
+      - name: Install MPT environment
         run: |
           cd mpt
 
           echo "=========================================="
-          echo "VERIFYING MPT PROJECT"
+          echo "INSTALLING MPT ENVIRONMENT"
           echo "=========================================="
-
-          echo ""
-          echo "===== pyproject.toml ====="
-
-          test -f pyproject.toml
-
-          echo "pyproject.toml: FOUND"
-
-          echo ""
-          echo "===== uv.lock ====="
-
-          test -f uv.lock
-
-          echo "uv.lock: FOUND"
-
-          echo ""
-          echo "===== requirements.txt ====="
-
-          if [ -f requirements.txt ]; then
-            echo "requirements.txt: FOUND"
-          else
-            echo "requirements.txt: NOT FOUND"
-          fi
-
-          echo ""
-          echo "===== Important files ====="
-
-          test -f main.py
-          echo "main.py: FOUND"
-
-          test -f cli.py
-          echo "cli.py: FOUND"
-
-          test -d app
-          echo "app/: FOUND"
-
-          test -d webui
-          echo "webui/: FOUND"
-
-
-      # ==========================================================
-      # 10. INSTALL MPT DEPENDENCIES
-      # ==========================================================
-
-      - name: Install MPT dependencies
-        if: ${{ inputs.run_mpt_smoke }}
-        run: |
-          cd mpt
-
-          echo "=========================================="
-          echo "INSTALLING MPT DEPENDENCIES"
-          echo "=========================================="
-
-          echo ""
-          echo "Python:"
-          python --version
-
-          echo ""
-          echo "uv:"
-          uv --version
-
-          echo ""
-          echo "Running:"
-          echo "uv sync --frozen"
 
           uv sync --frozen
 
           echo ""
-          echo "=========================================="
-          echo "MPT DEPENDENCIES INSTALLED"
-          echo "=========================================="
-
-
-      # ==========================================================
-      # 11. VERIFY UV ENVIRONMENT
-      # ==========================================================
-
-      - name: Verify uv environment
-        if: ${{ inputs.run_mpt_smoke }}
-        run: |
-          cd mpt
-
-          echo "=========================================="
-          echo "VERIFYING UV ENVIRONMENT"
-          echo "=========================================="
+          echo "Python:"
+          uv run python --version
 
           echo ""
-          echo "===== Virtual environment ====="
-
+          echo "Environment:"
           test -d .venv
-
-          echo ".venv: FOUND"
-
-          echo ""
-          echo "===== Python through uv ====="
-
-          uv run python --version
-
-          echo ""
-          echo "===== Python executable through uv ====="
-
-          uv run python -c "import sys; print(sys.executable)"
-
-          echo ""
-          echo "===== Installed packages ====="
-
-          uv pip list
+          echo ".venv OK"
 
 
       # ==========================================================
-      # 12. MPT DEPENDENCY SMOKE TEST
+      # 8. CREATE TEST VIDEO MATERIAL
       # ==========================================================
 
-      - name: MPT dependency smoke test
-        if: ${{ inputs.run_mpt_smoke }}
+      - name: Create local test video
         run: |
           cd mpt
 
           echo "=========================================="
-          echo "MONEYPRINTERTURBO DEPENDENCY SMOKE TEST"
+          echo "CREATING LOCAL TEST VIDEO"
           echo "=========================================="
 
-          echo ""
-          echo "===== Python ====="
+          mkdir -p test_assets
 
-          uv run python --version
-
-          echo ""
-          echo "===== Python executable ====="
-
-          uv run python -c "import sys; print(sys.executable)"
-
-          echo ""
-          echo "===== FFmpeg ====="
-
-          which ffmpeg
-          ffmpeg -version | head -n 1
+          ffmpeg \
+            -y \
+            -f lavfi \
+            -i "testsrc2=size=720x1280:rate=30" \
+            -t 8 \
+            -pix_fmt yuv420p \
+            -c:v libx264 \
+            -preset veryfast \
+            -crf 28 \
+            test_assets/test_source.mp4
 
           echo ""
-          echo "===== FFprobe ====="
+          echo "===== TEST VIDEO ====="
 
-          which ffprobe
-          ffprobe -version | head -n 1
+          ls -lh test_assets/test_source.mp4
 
           echo ""
-          echo "===== Python imports ====="
+          echo "===== VIDEO INFORMATION ====="
 
-          uv run python - <<'PY'
-          import sys
-
-          print("Python:", sys.version)
-          print("Executable:", sys.executable)
-
-          print("")
-          print("Testing requests...")
-          import requests
-          print("requests:", requests.__version__, "OK")
-
-          print("")
-          print("Testing moviepy...")
-          import moviepy
-          print("moviepy:", moviepy.__version__, "OK")
-
-          print("")
-          print("Testing streamlit...")
-          import streamlit
-          print("streamlit:", streamlit.__version__, "OK")
-
-          print("")
-          print("Testing fastapi...")
-          import fastapi
-          print("fastapi:", fastapi.__version__, "OK")
-
-          print("")
-          print("Testing uvicorn...")
-          import uvicorn
-          print("uvicorn:", uvicorn.__version__, "OK")
-
-          print("")
-          print("Testing edge-tts...")
-          import edge_tts
-          print("edge-tts: OK")
-
-          print("")
-          print("Testing faster-whisper...")
-          import faster_whisper
-          print("faster-whisper: OK")
-
-          print("")
-          print("Testing loguru...")
-          import loguru
-          print("loguru: OK")
-
-          print("")
-          print("Testing pydub...")
-          import pydub
-          print("pydub: OK")
-
-          print("")
-          print("Testing yaml...")
-          import yaml
-          print("PyYAML: OK")
-
-          print("")
-          print("Testing openai...")
-          import openai
-          print("openai:", openai.__version__, "OK")
-
-          print("")
-          print("==========================================")
-          print("ALL MPT PYTHON DEPENDENCIES: OK")
-          print("==========================================")
-          PY
+          ffprobe \
+            -v error \
+            -show_entries \
+            format=duration,size \
+            -show_entries \
+            stream=width,height,r_frame_rate,codec_name \
+            -of default=noprint_wrappers=1 \
+            test_assets/test_source.mp4
 
 
       # ==========================================================
-      # 13. CHECK MPT CLI
+      # 9. VERIFY CLI
       # ==========================================================
 
-      - name: Check MPT CLI
-        if: ${{ inputs.run_mpt_smoke }}
+      - name: Verify MPT CLI
         run: |
           cd mpt
 
           echo "=========================================="
-          echo "CHECKING MPT CLI"
+          echo "MPT CLI"
           echo "=========================================="
 
-          uv run python cli.py --help
-
-          echo ""
-          echo "=========================================="
-          echo "MPT CLI: OK"
-          echo "=========================================="
+          uv run python cli.py --help | head -n 120
 
 
       # ==========================================================
-      # 14. CHECK MPT MAIN API
+      # 10. GENERATE VIDEO WITH MPT
       # ==========================================================
 
-      - name: Check MPT main API syntax
-        if: ${{ inputs.run_mpt_smoke }}
+      - name: Generate first MPT video
         run: |
           cd mpt
 
           echo "=========================================="
-          echo "CHECKING MPT MAIN API"
+          echo "STARTING REAL MPT VIDEO GENERATION"
           echo "=========================================="
 
-          uv run python -m py_compile main.py
+          echo ""
+          echo "Subject:"
+          echo "How artificial intelligence is changing everyday life"
 
           echo ""
-          echo "main.py syntax: OK"
+          echo "Pipeline:"
+          echo "Prepared script"
+          echo "        ↓"
+          echo "Local video material"
+          echo "        ↓"
+          echo "MPT"
+          echo "        ↓"
+          echo "FFmpeg"
+          echo "        ↓"
+          echo "Final MP4"
+
+          echo ""
+          echo "=========================================="
+
+          uv run python cli.py \
+            --video-script "Artificial intelligence is changing everyday life. From smartphones to smart assistants, AI is becoming part of the tools people use every day. Modern AI can help people understand information, automate repetitive tasks, create content, and solve complex problems faster. The future of AI will depend on using these technologies responsibly while keeping people at the center of innovation." \
+            --video-source local \
+            --video-materials "./test_assets/test_source.mp4" \
+            --video-aspect "9:16" \
+            --video-count 1 \
+            --voice-name no-voice \
+            --no-subtitle-enabled \
+            --stop-at video
 
 
       # ==========================================================
-      # 15. CHECK MPT APPLICATION IMPORTS
+      # 11. FIND GENERATED VIDEO
       # ==========================================================
 
-      - name: Check MPT application
-        if: ${{ inputs.run_mpt_smoke }}
+      - name: Find generated video
         run: |
           cd mpt
 
           echo "=========================================="
-          echo "CHECKING MPT APPLICATION"
+          echo "SEARCHING FOR GENERATED VIDEO"
           echo "=========================================="
 
-          uv run python - <<'PY'
-          import sys
+          echo ""
+          echo "Task directories:"
+          find storage/tasks \
+            -maxdepth 3 \
+            -type f \
+            -printf "%p\n" \
+            2>/dev/null || true
 
-          print("Python:", sys.version)
-
-          print("")
-          print("Importing MPT application modules...")
-
-          import app
-
-          print("app: OK")
-
-          print("")
-          print("MPT application import test: OK")
-          PY
+          echo ""
+          echo "MP4 files:"
+          find storage/tasks \
+            -type f \
+            -iname "*.mp4" \
+            -printf "%p\n" \
+            2>/dev/null || true
 
 
       # ==========================================================
-      # 16. FINAL ENVIRONMENT REPORT
+      # 12. VERIFY GENERATED MP4
       # ==========================================================
 
-      - name: Final environment report
+      - name: Verify generated MP4
+        run: |
+          cd mpt
+
+          echo "=========================================="
+          echo "VERIFYING GENERATED VIDEO"
+          echo "=========================================="
+
+          VIDEO=$(find storage/tasks \
+            -type f \
+            -iname "*.mp4" \
+            -printf "%p\n" \
+            2>/dev/null | head -n 1)
+
+          if [ -z "$VIDEO" ]; then
+            echo ""
+            echo "ERROR: No MP4 file was generated."
+            exit 1
+          fi
+
+          echo ""
+          echo "Generated video:"
+          echo "$VIDEO"
+
+          echo ""
+          echo "File size:"
+          ls -lh "$VIDEO"
+
+          echo ""
+          echo "Video information:"
+
+          ffprobe \
+            -v error \
+            -show_entries \
+            format=duration,size \
+            -show_entries \
+            stream=width,height,codec_name,r_frame_rate \
+            -of default=noprint_wrappers=1 \
+            "$VIDEO"
+
+          echo ""
+          echo "=========================================="
+          echo "MPT VIDEO GENERATION: SUCCESS"
+          echo "=========================================="
+
+
+      # ==========================================================
+      # 13. UPLOAD GENERATED VIDEO
+      # ==========================================================
+
+      - name: Upload generated video
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: mpt-generated-video
+          path: |
+            mpt/storage/tasks/**/*.mp4
+          if-no-files-found: warn
+          retention-days: 7
+
+
+      # ==========================================================
+      # 14. UPLOAD MPT TASK LOGS
+      # ==========================================================
+
+      - name: Upload MPT task files
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: mpt-task-output
+          path: |
+            mpt/storage/tasks/
+          if-no-files-found: warn
+          retention-days: 7
+
+
+      # ==========================================================
+      # 15. FINAL RESOURCE REPORT
+      # ==========================================================
+
+      - name: Final resource report
         if: always()
         run: |
-          echo ""
           echo "=========================================="
           echo "FINAL RESOURCE REPORT"
           echo "=========================================="
 
           echo ""
-          echo "===== CPU ====="
+          echo "CPU:"
           nproc
 
           echo ""
-          echo "===== RAM ====="
+          echo "RAM:"
           free -h
 
           echo ""
-          echo "===== DISK ====="
+          echo "DISK:"
           df -h /
 
           echo ""
-          echo "===== Python ====="
+          echo "Python:"
           python --version || true
 
           echo ""
-          echo "===== FFmpeg ====="
-          ffmpeg -version | head -n 1 || true
-
-          echo ""
-          echo "===== uv ====="
+          echo "uv:"
           uv --version || true
 
           echo ""
+          echo "FFmpeg:"
+          ffmpeg -version | head -n 1 || true
+
+          echo ""
           echo "=========================================="
-          echo "MPT WORKER POC FINISHED"
+          echo "MPT VIDEO POC FINISHED"
           echo "=========================================="
