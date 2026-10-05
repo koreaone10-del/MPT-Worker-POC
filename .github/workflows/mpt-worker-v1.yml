@@ -23,13 +23,12 @@ jobs:
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
 
-      REQUEST_JSON: ${{ toJSON(github.event.client_payload.request) }}
-
     steps:
 
       # ============================================================
       # 1. CHECKOUT
       # ============================================================
+
       - name: Checkout repository
         uses: actions/checkout@v6
 
@@ -37,6 +36,7 @@ jobs:
       # ============================================================
       # 2. PREPARE JOB VARIABLES
       # ============================================================
+
       - name: Prepare job variables
         shell: bash
         run: |
@@ -46,31 +46,52 @@ jobs:
           import json
           import os
 
-          request_raw = os.environ.get("REQUEST_JSON", "").strip()
+          # --------------------------------------------------------
+          # LOAD GITHUB EVENT
+          # --------------------------------------------------------
 
-          try:
-              request = json.loads(request_raw) if request_raw else {}
-          except Exception:
-              request = {}
+          event_path = os.environ.get(
+              "GITHUB_EVENT_PATH",
+              ""
+          )
 
-          event_path = os.environ.get("GITHUB_EVENT_PATH", "")
+          if not event_path:
+              raise RuntimeError(
+                  "GITHUB_EVENT_PATH is missing"
+              )
 
-          event = {}
+          with open(
+              event_path,
+              "r",
+              encoding="utf-8"
+          ) as f:
+              event = json.load(f)
 
-          if event_path and os.path.exists(event_path):
-              try:
-                  with open(event_path, "r", encoding="utf-8") as f:
-                      event = json.load(f)
-              except Exception:
-                  event = {}
+          client_payload = (
+              event.get(
+                  "client_payload",
+                  {}
+              )
+              or {}
+          )
 
-          client_payload = event.get("client_payload", {}) or {}
+          request = (
+              client_payload.get(
+                  "request",
+                  {}
+              )
+              or {}
+          )
 
-          if not request:
-              request = client_payload.get("request", {}) or {}
+          # --------------------------------------------------------
+          # JOB ID
+          # --------------------------------------------------------
 
           job_id = str(
-              client_payload.get("job_id", "")
+              client_payload.get(
+                  "job_id",
+                  ""
+              )
           ).strip()
 
           if not job_id:
@@ -78,20 +99,37 @@ jobs:
                   "Missing job_id in repository_dispatch payload"
               )
 
-          def clean(value, default=""):
+          # --------------------------------------------------------
+          # HELPERS
+          # --------------------------------------------------------
+
+          def clean(
+              value,
+              default=""
+          ):
               if value is None:
                   return default
+
               return str(value).strip()
 
-          def env_value(name, value):
-              value = "" if value is None else str(value)
+          def env_value(
+              name,
+              value
+          ):
+              value = (
+                  ""
+                  if value is None
+                  else str(value)
+              )
 
               with open(
                   os.environ["GITHUB_ENV"],
                   "a",
                   encoding="utf-8"
               ) as f:
-                  f.write(f"{name}<<__EOF__\n")
+                  f.write(
+                      f"{name}<<__EOF__\n"
+                  )
                   f.write(value)
                   f.write("\n__EOF__\n")
 
@@ -100,30 +138,50 @@ jobs:
           # --------------------------------------------------------
 
           subject = clean(
-              request.get("subject", ""),
+              request.get(
+                  "subject",
+                  ""
+              ),
               "Create a short cinematic video"
           )
 
           aspect = clean(
-              request.get("aspect_ratio", "9:16"),
+              request.get(
+                  "aspect_ratio",
+                  "9:16"
+              ),
               "9:16"
           )
 
           video_count = int(
-              request.get("video_count", 1) or 1
+              request.get(
+                  "video_count",
+                  1
+              )
+              or 1
           )
 
           language = clean(
-              request.get("language", "ar"),
+              request.get(
+                  "language",
+                  "ar"
+              ),
               "ar"
           ).lower()
 
           duration = int(
-              request.get("duration", 30) or 30
+              request.get(
+                  "duration",
+                  30
+              )
+              or 30
           )
 
           voice = clean(
-              request.get("voice", "ar-male"),
+              request.get(
+                  "voice",
+                  "ar-male"
+              ),
               "ar-male"
           ).lower()
 
@@ -132,13 +190,19 @@ jobs:
               True
           )
 
-          if isinstance(subtitles, str):
-              subtitles = subtitles.lower() not in {
-                  "false",
-                  "0",
-                  "no",
-                  "off"
-              }
+          if isinstance(
+              subtitles,
+              str
+          ):
+              subtitles = (
+                  subtitles.lower()
+                  not in {
+                      "false",
+                      "0",
+                      "no",
+                      "off"
+                  }
+              )
 
           subtitle_provider = clean(
               request.get(
@@ -148,8 +212,11 @@ jobs:
               "edge"
           ).lower()
 
-          script = clean(
-              request.get("script", ""),
+          user_script = clean(
+              request.get(
+                  "script",
+                  ""
+              ),
               ""
           )
 
@@ -158,13 +225,19 @@ jobs:
               True
           )
 
-          if isinstance(music, str):
-              music = music.lower() not in {
-                  "false",
-                  "0",
-                  "no",
-                  "off"
-              }
+          if isinstance(
+              music,
+              str
+          ):
+              music = (
+                  music.lower()
+                  not in {
+                      "false",
+                      "0",
+                      "no",
+                      "off"
+                  }
+              )
 
           video_source = clean(
               request.get(
@@ -201,25 +274,7 @@ jobs:
               "fr-female": "fr-FR-DeniseNeural",
 
               "en-male": "en-US-GuyNeural",
-              "en-female": "en-US-JennyNeural",
-
-              "male": {
-                  "ar": "ar-SA-HamedNeural",
-                  "fr": "fr-FR-HenriNeural",
-                  "en": "en-US-GuyNeural"
-              }.get(
-                  language,
-                  "ar-SA-HamedNeural"
-              ),
-
-              "female": {
-                  "ar": "ar-SA-ZariyahNeural",
-                  "fr": "fr-FR-DeniseNeural",
-                  "en": "en-US-JennyNeural"
-              }.get(
-                  language,
-                  "ar-SA-ZariyahNeural"
-              )
+              "en-female": "en-US-JennyNeural"
           }
 
           if voice in {
@@ -231,10 +286,24 @@ jobs:
               voice_name = "no-voice"
 
           elif voice in voice_map:
-              voice_name = voice_map[voice]
+              voice_name = voice_map[
+                  voice
+              ]
 
           elif "Neural" in voice:
               voice_name = voice
+
+          elif voice == "male":
+              voice_name = voice_map.get(
+                  f"{language}-male",
+                  "ar-SA-HamedNeural"
+              )
+
+          elif voice == "female":
+              voice_name = voice_map.get(
+                  f"{language}-female",
+                  "ar-SA-ZariyahNeural"
+              )
 
           else:
               voice_name = voice_map.get(
@@ -246,21 +315,19 @@ jobs:
           # SUBTITLES
           # --------------------------------------------------------
 
-          subtitle_enabled = (
-              "true"
-              if subtitles
-              else "false"
-          )
-
-          if subtitle_provider not in {
-              "edge",
-              "whisper",
-              "none"
-          }:
-              subtitle_provider = "edge"
-
           if not subtitles:
+              subtitle_enabled = "false"
               subtitle_provider = "none"
+
+          else:
+              subtitle_enabled = "true"
+
+              if subtitle_provider not in {
+                  "edge",
+                  "whisper",
+                  "none"
+              }:
+                  subtitle_provider = "edge"
 
           # --------------------------------------------------------
           # MUSIC
@@ -277,14 +344,21 @@ jobs:
           # --------------------------------------------------------
 
           if language == "ar":
-              font_name = "NotoSansArabicUI-Regular.ttf"
+              font_name = (
+                  "NotoSansArabicUI-Regular.ttf"
+              )
+
               words_per_second = 2.0
+
           else:
-              font_name = "NotoSans-Regular.ttf"
+              font_name = (
+                  "NotoSans-Regular.ttf"
+              )
+
               words_per_second = 2.25
 
           # --------------------------------------------------------
-          # TARGET SCRIPT LENGTH
+          # SCRIPT LENGTH
           # --------------------------------------------------------
 
           target_words = max(
@@ -322,44 +396,50 @@ jobs:
 
           # --------------------------------------------------------
           # SCRIPT PROMPT
+          #
+          # No triple-quoted Python string here.
+          # This avoids YAML indentation problems.
           # --------------------------------------------------------
 
-          script_prompt = f"""
-Create a highly relevant video script about:
+          prompt_lines = [
+              "Create a highly relevant video script about:",
+              "",
+              subject,
+              "",
+              "STRICT REQUIREMENTS:",
+              "",
+              "1. Stay ONLY on the requested topic.",
+              "2. Do not introduce unrelated subjects.",
+              "3. Every sentence must directly support the topic.",
+              "4. Use concrete visual nouns, locations, objects, people,",
+              "   actions and situations that can be represented by stock",
+              "   video footage.",
+              "5. Avoid generic filler.",
+              "6. Avoid unrelated examples.",
+              "7. Avoid abstract statements when concrete visuals are possible.",
+              "8. Make every sentence easy to match with stock footage.",
+              "9. Keep the narrative coherent from beginning to end.",
+              "10. Write the script in the requested language.",
+              f"11. Target approximately {target_words} words.",
+              f"12. Minimum {min_words} words.",
+              f"13. Maximum {max_words} words.",
+              f"14. Use {paragraph_number} paragraph(s).",
+              "15. Do not add titles.",
+              "16. Do not add markdown.",
+              "17. Do not add bullet points.",
+              "18. Return ONLY the final narration script.",
+              "",
+              "SUBJECT:",
+              "",
+              subject
+          ]
 
-{subject}
-
-STRICT REQUIREMENTS:
-
-1. Stay ONLY on the requested topic.
-2. Do not introduce unrelated subjects.
-3. Every sentence must directly support the topic.
-4. Use concrete visual nouns, locations, objects, people,
-   actions and situations that can be represented by stock
-   video footage.
-5. Avoid generic filler.
-6. Avoid unrelated examples.
-7. Avoid abstract statements when a concrete visual description
-   is possible.
-8. Make every sentence easy to match with stock footage.
-9. Keep the narrative coherent from beginning to end.
-10. Write the script in the requested language.
-11. Target approximately {target_words} words.
-12. Minimum {min_words} words.
-13. Maximum {max_words} words.
-14. Use {paragraph_number} paragraph(s).
-15. Do not add titles.
-16. Do not add markdown.
-17. Do not add bullet points.
-18. Return ONLY the final narration script.
-
-SUBJECT:
-
-{subject}
-          """.strip()
+          script_prompt = "\n".join(
+              prompt_lines
+          )
 
           # --------------------------------------------------------
-          # SAVE TO GITHUB ENV
+          # WRITE VARIABLES TO GITHUB ENV
           # --------------------------------------------------------
 
           env_value(
@@ -449,13 +529,17 @@ SUBJECT:
 
           env_value(
               "USER_SCRIPT",
-              script
+              user_script
           )
 
           env_value(
               "VIDEO_SOURCE",
               video_source
           )
+
+          # --------------------------------------------------------
+          # LOG
+          # --------------------------------------------------------
 
           echo "============================================"
           echo "MPT JOB VARIABLES"
@@ -477,6 +561,7 @@ SUBJECT:
       # ============================================================
       # 3. CALLBACK - STARTING
       # ============================================================
+
       - name: Callback - Starting
         shell: bash
         env:
@@ -501,6 +586,7 @@ SUBJECT:
       # ============================================================
       # 4. CALLBACK - PREPARING
       # ============================================================
+
       - name: Callback - Preparing
         shell: bash
         env:
@@ -523,8 +609,9 @@ SUBJECT:
 
 
       # ============================================================
-      # 5. INSTALL DEPENDENCIES
+      # 5. INSTALL SYSTEM DEPENDENCIES
       # ============================================================
+
       - name: Install system dependencies
         shell: bash
         run: |
@@ -547,6 +634,7 @@ SUBJECT:
       # ============================================================
       # 6. CLONE MONEYPRINTERTURBO
       # ============================================================
+
       - name: Clone MoneyPrinterTurbo
         shell: bash
         run: |
@@ -556,7 +644,8 @@ SUBJECT:
 
           git clone \
             --depth 1 \
-            https://github.com/harry0703/MoneyPrinterTurbo.git
+            https://github.com/harry0703/MoneyPrinterTurbo.git \
+            MoneyPrinterTurbo
 
           cd MoneyPrinterTurbo
 
@@ -568,10 +657,9 @@ SUBJECT:
 
 
       # ============================================================
-      # 7. INSTALL ARABIC/LATIN FONTS INTO MPT
-      #
-      # MPT expects font_name inside resource/fonts.
+      # 7. INSTALL FONTS INTO MPT
       # ============================================================
+
       - name: Install subtitle fonts
         shell: bash
         run: |
@@ -581,7 +669,9 @@ SUBJECT:
 
           mkdir -p resource/fonts
 
-          ARABIC_FONT=""
+          # --------------------------------------------------------
+          # ARABIC FONT
+          # --------------------------------------------------------
 
           ARABIC_FONT="$(
             find /usr/share/fonts \
@@ -599,7 +689,9 @@ SUBJECT:
             )"
           fi
 
-          LATIN_FONT=""
+          # --------------------------------------------------------
+          # LATIN FONT
+          # --------------------------------------------------------
 
           LATIN_FONT="$(
             find /usr/share/fonts \
@@ -635,13 +727,15 @@ SUBJECT:
             "${LATIN_FONT}" \
             resource/fonts/NotoSans-Regular.ttf
 
-          echo "MPT fonts:"
-          ls -lah resource/fonts/NotoSans*.ttf
+          echo "Installed MPT fonts:"
+          ls -lah \
+            resource/fonts/NotoSans*.ttf
 
 
       # ============================================================
       # 8. CONFIGURE MPT
       # ============================================================
+
       - name: Configure MPT
         shell: bash
         env:
@@ -659,7 +753,9 @@ SUBJECT:
           import re
           from pathlib import Path
 
-          path = Path("config.toml")
+          path = Path(
+              "config.toml"
+          )
 
           text = path.read_text(
               encoding="utf-8"
@@ -675,51 +771,30 @@ SUBJECT:
               ""
           )
 
-          def replace_key(
-              text,
-              key,
-              value
-          ):
-              escaped = value.replace(
-                  "\\",
-                  "\\\\"
-              ).replace(
-                  '"',
-                  '\\"'
-              )
+          subtitle_provider = os.environ.get(
+              "SUBTITLE_PROVIDER",
+              "edge"
+          )
 
-              pattern = (
-                  rf'(?m)^{re.escape(key)}\s*=\s*.*$'
-              )
-
-              replacement = (
-                  f'{key} = "{escaped}"'
-              )
-
-              if re.search(
-                  pattern,
-                  text
-              ):
-                  return re.sub(
-                      pattern,
-                      replacement,
-                      text,
-                      count=1
-                  )
-
-              return text
+          # --------------------------------------------------------
+          # SIMPLE TOML REPLACER
+          # --------------------------------------------------------
 
           def replace_string(
-              text,
+              source,
               key,
               value
           ):
-              escaped = value.replace(
-                  "\\",
-                  "\\\\"
-              ).replace(
-                  '"',
-                  '\\"'
+              escaped = (
+                  value
+                  .replace(
+                      "\\",
+                      "\\\\"
+                  )
+                  .replace(
+                      '"',
+                      '\\"'
+                  )
               )
 
               pattern = (
@@ -732,16 +807,16 @@ SUBJECT:
 
               if re.search(
                   pattern,
-                  text
+                  source
               ):
                   return re.sub(
                       pattern,
                       replacement,
-                      text,
+                      source,
                       count=1
                   )
 
-              return text
+              return source
 
           # --------------------------------------------------------
           # LLM
@@ -753,7 +828,7 @@ SUBJECT:
               "openrouter"
           )
 
-          text = replace_key(
+          text = replace_string(
               text,
               "openrouter_api_key",
               openrouter_key
@@ -787,8 +862,14 @@ SUBJECT:
 
           escaped_pixabay = (
               pixabay_key
-              .replace("\\", "\\\\")
-              .replace('"', '\\"')
+              .replace(
+                  "\\",
+                  "\\\\"
+              )
+              .replace(
+                  '"',
+                  '\\"'
+              )
           )
 
           pixabay_pattern = (
@@ -796,7 +877,8 @@ SUBJECT:
           )
 
           pixabay_replacement = (
-              f'pixabay_api_keys = ["{escaped_pixabay}"]'
+              'pixabay_api_keys = '
+              f'["{escaped_pixabay}"]'
           )
 
           if re.search(
@@ -832,18 +914,12 @@ SUBJECT:
           # --------------------------------------------------------
           # SUBTITLE PROVIDER
           #
-          # IMPORTANT:
-          # subtitle_provider belongs to [app] config,
-          # not to VideoParams batch manifest.
+          # This belongs in config.toml.
+          # It is NOT added to the batch manifest.
           # --------------------------------------------------------
 
           provider_pattern = (
               r'(?m)^subtitle_provider\s*=\s*.*$'
-          )
-
-          provider_value = os.environ.get(
-              "SUBTITLE_PROVIDER",
-              "edge"
           )
 
           if re.search(
@@ -852,7 +928,7 @@ SUBJECT:
           ):
               text = re.sub(
                   provider_pattern,
-                  f'subtitle_provider = "{provider_value}"',
+                  f'subtitle_provider = "{subtitle_provider}"',
                   text,
                   count=1
               )
@@ -862,21 +938,27 @@ SUBJECT:
               encoding="utf-8"
           )
 
-          print("MPT config prepared.")
+          print(
+              "MPT configuration prepared."
+          )
           PY
 
-          echo "--------------------------------------------"
-          echo "Relevant MPT configuration:"
+          echo "============================================"
+          echo "MPT CONFIGURATION"
+          echo "============================================"
+
           grep -E \
             '^(llm_provider|openrouter_base_url|openrouter_model_name|video_source|pixabay_api_keys|match_materials_to_script|subtitle_provider)' \
             config.toml \
             || true
-          echo "--------------------------------------------"
+
+          echo "============================================"
 
 
       # ============================================================
       # 9. CALLBACK - GENERATING
       # ============================================================
+
       - name: Callback - Generating
         shell: bash
         env:
@@ -899,15 +981,9 @@ SUBJECT:
 
 
       # ============================================================
-      # 10. CREATE MPT TASK
-      #
-      # IMPORTANT:
-      # Current MPT accepts JSON ARRAY or JSONL.
-      # We use a JSON ARRAY containing ONE task.
-      #
-      # Only valid VideoParams fields are included.
-      # subtitle_provider is NOT included here.
+      # 10. CREATE MPT BATCH MANIFEST
       # ============================================================
+
       - name: Create MPT task
         shell: bash
         run: |
@@ -932,11 +1008,15 @@ SUBJECT:
           ]
 
           video_count = int(
-              os.environ["VIDEO_COUNT"]
+              os.environ[
+                  "VIDEO_COUNT"
+              ]
           )
 
           paragraph_number = int(
-              os.environ["PARAGRAPH_NUMBER"]
+              os.environ[
+                  "PARAGRAPH_NUMBER"
+              ]
           )
 
           voice_name = os.environ[
@@ -966,6 +1046,13 @@ SUBJECT:
               "USER_SCRIPT",
               ""
           ).strip()
+
+          # --------------------------------------------------------
+          # VIDEO PARAMS
+          #
+          # Only fields accepted by the current MPT VideoParams
+          # are included here.
+          # --------------------------------------------------------
 
           task = {
               "video_subject": subject,
@@ -1011,17 +1098,22 @@ SUBJECT:
               "font_name": font_name
           }
 
-          # إذا المستخدم أعطى Script كاملًا،
-          # نستعمله مباشرة.
+          # --------------------------------------------------------
+          # USER SCRIPT
           #
-          # إذا لم يعطه، MPT سيولد Script من
-          # video_subject باستخدام OpenRouter.
-          if user_script:
-              task["video_script"] = user_script
+          # Only send video_script if the user supplied a complete
+          # script. Otherwise MPT generates it from video_subject.
+          # --------------------------------------------------------
 
-          # ========================================================
-          # MPT BATCH MANIFEST
-          # ========================================================
+          if user_script:
+              task[
+                  "video_script"
+              ] = user_script
+
+          # --------------------------------------------------------
+          # IMPORTANT:
+          # MPT batch-file accepts JSON ARRAY.
+          # --------------------------------------------------------
 
           manifest = [
               task
@@ -1039,7 +1131,10 @@ SUBJECT:
                   indent=2
               )
 
-          # تحقق قبل تشغيل MPT
+          # --------------------------------------------------------
+          # VALIDATE MANIFEST BEFORE MPT
+          # --------------------------------------------------------
+
           with open(
               "mpt-task.json",
               "r",
@@ -1097,6 +1192,7 @@ SUBJECT:
       # ============================================================
       # 11. RUN MONEYPRINTERTURBO
       # ============================================================
+
       - name: Run MoneyPrinterTurbo
         shell: bash
         run: |
@@ -1111,6 +1207,7 @@ SUBJECT:
           echo "Subject: ${VIDEO_SUBJECT}"
           echo "Language: ${VIDEO_LANGUAGE}"
           echo "Aspect: ${VIDEO_ASPECT}"
+          echo "Duration target: ${TARGET_DURATION}s"
           echo "Voice: ${VOICE_NAME}"
           echo "Subtitles: ${SUBTITLE_ENABLED}"
           echo "Subtitle provider: ${SUBTITLE_PROVIDER}"
@@ -1126,6 +1223,7 @@ SUBJECT:
       # ============================================================
       # 12. FIND FINAL VIDEO
       # ============================================================
+
       - name: Find final video
         shell: bash
         run: |
@@ -1179,6 +1277,7 @@ SUBJECT:
       # ============================================================
       # 13. INSPECT FINAL VIDEO
       # ============================================================
+
       - name: Inspect final video
         shell: bash
         run: |
@@ -1189,7 +1288,8 @@ SUBJECT:
             exit 1
           fi
 
-          ls -lh "${FINAL_VIDEO}"
+          ls -lh \
+            "${FINAL_VIDEO}"
 
           echo "============================================"
           echo "FFPROBE"
@@ -1208,6 +1308,7 @@ SUBJECT:
       # ============================================================
       # 14. CALLBACK - UPLOADING
       # ============================================================
+
       - name: Callback - Uploading
         shell: bash
         env:
@@ -1232,6 +1333,7 @@ SUBJECT:
       # ============================================================
       # 15. UPLOAD VIDEO TO RENDER
       # ============================================================
+
       - name: Upload video to Render
         shell: bash
         env:
@@ -1260,6 +1362,7 @@ SUBJECT:
       # ============================================================
       # 16. CALLBACK - COMPLETED
       # ============================================================
+
       - name: Callback - Completed
         shell: bash
         env:
@@ -1285,6 +1388,7 @@ SUBJECT:
       # ============================================================
       # 17. UPLOAD ARTIFACT
       # ============================================================
+
       - name: Upload generated video artifact
         if: always()
         uses: actions/upload-artifact@v6
@@ -1297,6 +1401,7 @@ SUBJECT:
       # ============================================================
       # 18. CALLBACK - FAILED
       # ============================================================
+
       - name: Callback - Failed
         if: failure()
         shell: bash
@@ -1304,6 +1409,11 @@ SUBJECT:
           CALLBACK_SECRET: ${{ secrets.RENDER_CALLBACK_SECRET }}
         run: |
           set +e
+
+          if [ -z "${JOB_ID:-}" ]; then
+            echo "JOB_ID is not available; skipping failed callback."
+            exit 0
+          fi
 
           ERROR_MESSAGE="GitHub Actions MPT worker failed."
 
