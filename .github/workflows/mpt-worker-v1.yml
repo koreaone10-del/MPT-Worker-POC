@@ -39,12 +39,12 @@ env:
 jobs:
   mpt:
     name: MPT Pixabay Worker
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
 
       # ============================================================
-      # 1. Read job information
+      # 1. Prepare job variables
       # ============================================================
 
       - name: Prepare job variables
@@ -94,6 +94,7 @@ jobs:
           echo "=========================================="
           echo "MPT PIXABAY WORKER"
           echo "=========================================="
+          echo "EVENT        : ${{ github.event_name }}"
           echo "JOB_ID       : $JOB_ID"
           echo "SUBJECT      : $VIDEO_SUBJECT"
           echo "ASPECT       : $ASPECT"
@@ -102,10 +103,12 @@ jobs:
 
 
       # ============================================================
-      # 2. Callback: starting
+      # 2. Callback - Starting
+      #    ONLY for real Render jobs
       # ============================================================
 
       - name: Callback - Starting
+        if: github.event_name == 'repository_dispatch'
         shell: bash
         run: |
           set -e
@@ -127,14 +130,16 @@ jobs:
       # ============================================================
 
       - name: Checkout worker repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
 
       # ============================================================
-      # 4. Callback: preparing
+      # 4. Callback - Preparing
+      #    ONLY for real Render jobs
       # ============================================================
 
       - name: Callback - Preparing
+        if: github.event_name == 'repository_dispatch'
         shell: bash
         run: |
           set -e
@@ -169,9 +174,15 @@ jobs:
             curl \
             ca-certificates
 
+          echo "=========================================="
+          echo "SYSTEM"
+          echo "=========================================="
+
           ffmpeg -version | head -n 1
           python3 --version
           curl --version | head -n 1
+
+          echo "=========================================="
 
 
       # ============================================================
@@ -192,8 +203,12 @@ jobs:
 
           cd MoneyPrinterTurbo
 
-          echo "MPT commit:"
+          echo "=========================================="
+          echo "MONEYPRINTERTURBO"
+          echo "=========================================="
+          echo "Commit:"
           git rev-parse HEAD
+          echo "=========================================="
 
 
       # ============================================================
@@ -228,13 +243,14 @@ jobs:
 
 
       # ============================================================
-      # 9. Verify Pixabay secret
+      # 9. Verify Pixabay API key
       # ============================================================
 
       - name: Verify Pixabay configuration
         shell: bash
         env:
           PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+
         run: |
           set -e
 
@@ -256,6 +272,7 @@ jobs:
         shell: bash
         env:
           PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+
         run: |
           set -e
 
@@ -268,44 +285,71 @@ jobs:
           source = Path("config.example.toml")
           target = Path("config.toml")
 
+          if not source.exists():
+              raise SystemExit("ERROR: config.example.toml not found")
+
           text = source.read_text(encoding="utf-8")
 
-          text = text.replace(
-              'video_source = "pexels"',
-              'video_source = "pixabay"',
-              1
-          )
+          # Force Pixabay as video source.
+          if 'video_source = "pexels"' in text:
+              text = text.replace(
+                  'video_source = "pexels"',
+                  'video_source = "pixabay"',
+                  1
+              )
+          elif 'video_source = "pixabay"' not in text:
+              raise SystemExit(
+                  "ERROR: Could not locate video_source setting in config.example.toml"
+              )
 
-          text = text.replace(
-              "pexels_api_keys = []",
-              "pexels_api_keys = []",
-              1
-          )
+          # Configure Pixabay API key.
+          if "pixabay_api_keys = []" in text:
+              text = text.replace(
+                  "pixabay_api_keys = []",
+                  f'pixabay_api_keys = ["{key}"]',
+                  1
+              )
+          elif "pixabay_api_keys =" in text:
+              import re
 
-          text = text.replace(
-              "pixabay_api_keys = []",
-              f'pixabay_api_keys = ["{key}"]',
-              1
-          )
+              text = re.sub(
+                  r'^pixabay_api_keys\s*=.*$',
+                  f'pixabay_api_keys = ["{key}"]',
+                  text,
+                  count=1,
+                  flags=re.MULTILINE
+              )
+          else:
+              raise SystemExit(
+                  "ERROR: pixabay_api_keys setting not found"
+              )
 
           target.write_text(text, encoding="utf-8")
 
-          print("config.toml created.")
+          print("config.toml created successfully.")
           print("video_source = pixabay")
-          print("pixabay_api_keys configured.")
+          print("pixabay_api_keys = [HIDDEN]")
           PY
 
-          echo "Checking configuration..."
+          echo "=========================================="
+          echo "MPT CONFIG CHECK"
+          echo "=========================================="
 
-          grep -n '^video_source' config.toml
-          grep -n '^pixabay_api_keys' config.toml | sed 's/=.*/= [HIDDEN]/'
+          grep -n '^video_source' config.toml || true
+
+          grep -n '^pixabay_api_keys' config.toml \
+            | sed 's/=.*/= [HIDDEN]/'
+
+          echo "=========================================="
 
 
       # ============================================================
-      # 11. Callback: Pixabay material stage
+      # 11. Callback - Pixabay materials
+      #     ONLY for real Render jobs
       # ============================================================
 
       - name: Callback - Pixabay materials
+        if: github.event_name == 'repository_dispatch'
         shell: bash
         run: |
           set -e
@@ -323,7 +367,7 @@ jobs:
 
 
       # ============================================================
-      # 12. Run MoneyPrinterTurbo with Pixabay
+      # 12. Run MoneyPrinterTurbo
       # ============================================================
 
       - name: Run MoneyPrinterTurbo
@@ -339,13 +383,16 @@ jobs:
           echo "Subject:"
           echo "$VIDEO_SUBJECT"
 
-          echo "Source:"
+          echo ""
+          echo "Video source:"
           echo "pixabay"
 
+          echo ""
           echo "Aspect:"
           echo "$ASPECT"
 
-          echo "Count:"
+          echo ""
+          echo "Video count:"
           echo "$VIDEO_COUNT"
 
           echo "=========================================="
@@ -361,7 +408,7 @@ jobs:
 
 
       # ============================================================
-      # 13. Locate generated video
+      # 13. Find generated video
       # ============================================================
 
       - name: Find generated video
@@ -370,39 +417,52 @@ jobs:
         run: |
           set -e
 
-          echo "Searching for generated MP4..."
+          echo "=========================================="
+          echo "SEARCHING FOR GENERATED VIDEO"
+          echo "=========================================="
 
           find storage/tasks \
             -type f \
             -name "final-*.mp4" \
             -print
 
-          FINAL_VIDEO="$(find storage/tasks \
-            -type f \
-            -name "final-*.mp4" \
-            | head -n 1)"
+          FINAL_VIDEO="$(
+            find storage/tasks \
+              -type f \
+              -name "final-*.mp4" \
+              | head -n 1
+          )"
 
           if [ -z "$FINAL_VIDEO" ]; then
             echo "ERROR: No final MP4 was generated."
+
             echo ""
-            echo "Last task directories:"
-            find storage/tasks -maxdepth 3 -type f | tail -n 100
+            echo "Available task files:"
+            find storage/tasks \
+              -maxdepth 5 \
+              -type f \
+              -print \
+              | tail -n 100
+
             exit 1
           fi
 
           echo "FINAL_VIDEO=$FINAL_VIDEO" >> "$GITHUB_ENV"
 
-          echo "=========================================="
-          echo "VIDEO FOUND"
+          echo ""
+          echo "VIDEO FOUND:"
           echo "$FINAL_VIDEO"
+
           echo "=========================================="
 
 
       # ============================================================
-      # 14. Callback: processing
+      # 14. Callback - Processing
+      #     ONLY for real Render jobs
       # ============================================================
 
       - name: Callback - Processing
+        if: github.event_name == 'repository_dispatch'
         shell: bash
         run: |
           set -e
@@ -421,15 +481,19 @@ jobs:
 
       # ============================================================
       # 15. Upload video to Render
+      #     ONLY for real Render jobs
       # ============================================================
 
       - name: Upload video to Render
+        if: github.event_name == 'repository_dispatch'
         working-directory: MoneyPrinterTurbo
         shell: bash
         run: |
           set -e
 
-          echo "Uploading final video to Render..."
+          echo "=========================================="
+          echo "UPLOADING VIDEO TO RENDER"
+          echo "=========================================="
 
           RESPONSE="$(
             curl -sS -f \
@@ -450,19 +514,31 @@ jobs:
           data = json.loads(sys.stdin.read())
 
           if "output_url" not in data:
-              raise SystemExit("output_url missing from upload response")
+              raise SystemExit(
+                  "ERROR: output_url missing from upload response"
+              )
 
           print(data["output_url"])
           ' <<< "$RESPONSE"
           )"
 
+          if [ -z "$OUTPUT_URL" ]; then
+            echo "ERROR: OUTPUT_URL is empty"
+            exit 1
+          fi
+
           echo "OUTPUT_URL=$OUTPUT_URL" >> "$GITHUB_ENV"
 
           echo "Video uploaded successfully."
+          echo "Output URL:"
+          echo "$OUTPUT_URL"
+
+          echo "=========================================="
 
 
       # ============================================================
-      # 16. Upload GitHub artifact
+      # 16. Upload final video artifact
+      #     Works for manual AND real jobs
       # ============================================================
 
       - name: Upload final video artifact
@@ -474,46 +550,75 @@ jobs:
 
 
       # ============================================================
-      # 17. Callback: completed
+      # 17. Callback - Completed
+      #     ONLY for real Render jobs
       # ============================================================
 
       - name: Callback - Completed
+        if: github.event_name == 'repository_dispatch'
         shell: bash
         run: |
           set -e
+
+          FULL_OUTPUT_URL="${RENDER_CALLBACK_URL}${OUTPUT_URL}"
+
+          echo "=========================================="
+          echo "CALLBACK - COMPLETED"
+          echo "=========================================="
+          echo "JOB_ID:"
+          echo "$JOB_ID"
+          echo ""
+          echo "OUTPUT URL:"
+          echo "$FULL_OUTPUT_URL"
+          echo "=========================================="
+
+          python3 - <<'PY' > /tmp/completed.json
+          import json
+          import os
+
+          base = os.environ["RENDER_CALLBACK_URL"]
+          output = os.environ["OUTPUT_URL"]
+
+          payload = {
+              "status": "completed",
+              "progress": 100,
+              "stage": "completed",
+              "output_url": base + output
+          }
+
+          print(json.dumps(payload))
+          PY
 
           curl -sS -f \
             -X POST \
             "${RENDER_CALLBACK_URL}/api/worker/jobs/${JOB_ID}/callback" \
             -H "Content-Type: application/json" \
             -H "X-Callback-Secret: ${RENDER_CALLBACK_SECRET}" \
-            --data "{
-              \"status\": \"completed\",
-              \"progress\": 100,
-              \"stage\": \"completed\",
-              \"output_url\": \"${RENDER_CALLBACK_URL}${OUTPUT_URL}\"
-            }"
+            --data-binary @/tmp/completed.json
 
+          echo ""
           echo "=========================================="
           echo "MPT PIXABAY WORKER — SUCCESS"
           echo "=========================================="
-          echo "JOB_ID:"
-          echo "$JOB_ID"
-          echo ""
-          echo "OUTPUT:"
-          echo "${RENDER_CALLBACK_URL}${OUTPUT_URL}"
-          echo "=========================================="
 
 
       # ============================================================
-      # 18. Callback: failed
+      # 18. Callback - Failed
+      #     ONLY for real Render jobs
       # ============================================================
 
       - name: Callback - Failed
-        if: failure()
+        if: failure() && github.event_name == 'repository_dispatch'
         shell: bash
         run: |
           set +e
+
+          echo "=========================================="
+          echo "MPT PIXABAY WORKER — FAILED"
+          echo "=========================================="
+          echo "JOB_ID:"
+          echo "$JOB_ID"
+          echo "=========================================="
 
           curl -sS \
             -X POST \
@@ -527,4 +632,4 @@ jobs:
               "error": "GitHub MPT Pixabay Worker failed"
             }'
 
-          echo "Worker failed."
+          echo "Failure callback sent."
