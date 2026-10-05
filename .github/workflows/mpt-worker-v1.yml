@@ -44,12 +44,14 @@ jobs:
     steps:
 
       # ============================================================
-      # 1. PREPARE VARIABLES
+      # 1. READ THE COMPLETE REQUEST FROM RENDER
       # ============================================================
 
       - name: Prepare job variables
         shell: bash
         env:
+          REQUEST_JSON: ${{ toJSON(github.event.client_payload.request) }}
+
           DISPATCH_JOB_ID: ${{ github.event.client_payload.job_id }}
           DISPATCH_SUBJECT: ${{ github.event.client_payload.video_subject }}
           DISPATCH_ASPECT: ${{ github.event.client_payload.aspect }}
@@ -63,43 +65,349 @@ jobs:
         run: |
           set -e
 
-          JOB_ID="${DISPATCH_JOB_ID:-$MANUAL_JOB_ID}"
-          VIDEO_SUBJECT="${DISPATCH_SUBJECT:-$MANUAL_SUBJECT}"
-          ASPECT="${DISPATCH_ASPECT:-$MANUAL_ASPECT}"
-          VIDEO_COUNT="${DISPATCH_COUNT:-$MANUAL_COUNT}"
+          python3 - <<'PY'
+          import json
+          import os
 
-          if [ -z "$JOB_ID" ]; then
-            echo "ERROR: JOB_ID is empty"
-            exit 1
-          fi
+          request_raw = os.environ.get("REQUEST_JSON", "").strip()
 
-          if [ -z "$VIDEO_SUBJECT" ]; then
-            echo "ERROR: VIDEO_SUBJECT is empty"
-            exit 1
-          fi
+          if request_raw and request_raw != "null":
+              try:
+                  request = json.loads(request_raw)
+              except json.JSONDecodeError as exc:
+                  raise SystemExit(
+                      f"ERROR: invalid request JSON: {exc}"
+                  )
+          else:
+              request = {}
 
-          if [ -z "$ASPECT" ]; then
-            ASPECT="9:16"
-          fi
+          def first_value(*values, default=""):
+              for value in values:
+                  if value is None:
+                      continue
+                  value = str(value).strip()
+                  if value:
+                      return value
+              return default
 
-          if [ -z "$VIDEO_COUNT" ]; then
-            VIDEO_COUNT="1"
-          fi
+          job_id = first_value(
+              request.get("job_id"),
+              os.environ.get("DISPATCH_JOB_ID"),
+              os.environ.get("MANUAL_JOB_ID"),
+          )
 
-          echo "JOB_ID=$JOB_ID" >> "$GITHUB_ENV"
-          echo "VIDEO_SUBJECT=$VIDEO_SUBJECT" >> "$GITHUB_ENV"
-          echo "ASPECT=$ASPECT" >> "$GITHUB_ENV"
-          echo "VIDEO_COUNT=$VIDEO_COUNT" >> "$GITHUB_ENV"
+          subject = first_value(
+              request.get("subject"),
+              os.environ.get("DISPATCH_SUBJECT"),
+              os.environ.get("MANUAL_SUBJECT"),
+          )
 
-          echo "=========================================="
-          echo "MPT OPENROUTER + PIXABAY WORKER"
-          echo "=========================================="
-          echo "EVENT       : ${{ github.event_name }}"
-          echo "JOB_ID      : $JOB_ID"
-          echo "SUBJECT     : $VIDEO_SUBJECT"
-          echo "ASPECT      : $ASPECT"
-          echo "VIDEO COUNT : $VIDEO_COUNT"
-          echo "=========================================="
+          aspect = first_value(
+              request.get("aspect_ratio"),
+              os.environ.get("DISPATCH_ASPECT"),
+              os.environ.get("MANUAL_ASPECT"),
+              default="9:16",
+          )
+
+          count = first_value(
+              request.get("video_count"),
+              os.environ.get("DISPATCH_COUNT"),
+              os.environ.get("MANUAL_COUNT"),
+              default="1",
+          )
+
+          language = first_value(
+              request.get("language"),
+              default="ar",
+          )
+
+          duration = first_value(
+              request.get("duration"),
+              default="30",
+          )
+
+          voice = first_value(
+              request.get("voice"),
+              default="ar-male",
+          )
+
+          subtitles = request.get("subtitles", True)
+
+          subtitle_provider = first_value(
+              request.get("subtitle_provider"),
+              default="edge",
+          )
+
+          video_source = first_value(
+              request.get("video_source"),
+              default="pixabay",
+          )
+
+          music = request.get("music", True)
+
+          user_script = first_value(
+              request.get("script"),
+              default="",
+          )
+
+          # --------------------------------------------------------
+          # VALIDATION
+          # --------------------------------------------------------
+
+          allowed_aspects = {
+              "9:16",
+              "16:9",
+              "1:1",
+          }
+
+          allowed_durations = {
+              "30",
+              "45",
+              "60",
+              "90",
+              "120",
+          }
+
+          if not job_id:
+              raise SystemExit("ERROR: JOB_ID is empty")
+
+          if not subject and not user_script:
+              raise SystemExit(
+                  "ERROR: both subject and script are empty"
+              )
+
+          if aspect not in allowed_aspects:
+              aspect = "9:16"
+
+          if duration not in allowed_durations:
+              duration = "30"
+
+          try:
+              count_int = int(count)
+          except ValueError:
+              count_int = 1
+
+          count_int = max(1, min(5, count_int))
+
+          language = language.lower()
+
+          if language not in {
+              "ar",
+              "fr",
+              "en",
+          }:
+              language = "ar"
+
+          subtitle_provider = subtitle_provider.lower()
+
+          if subtitle_provider not in {
+              "edge",
+              "whisper",
+              "none",
+          }:
+              subtitle_provider = "edge"
+
+          # This project intentionally uses Pixabay.
+          video_source = "pixabay"
+
+          # --------------------------------------------------------
+          # LANGUAGE CODES
+          # --------------------------------------------------------
+
+          language_codes = {
+              "ar": "ar-SA",
+              "fr": "fr-FR",
+              "en": "en-US",
+          }
+
+          video_language = language_codes[language]
+
+          # --------------------------------------------------------
+          # VOICE MAPPING
+          # --------------------------------------------------------
+
+          voice_key = voice.strip().lower()
+
+          voice_map = {
+              "ar-male": "ar-SA-HamedNeural",
+              "ar-female": "ar-SA-ZariyahNeural",
+
+              "fr-male": "fr-FR-HenriNeural",
+              "fr-female": "fr-FR-DeniseNeural",
+
+              "en-male": "en-US-GuyNeural",
+              "en-female": "en-US-JennyNeural",
+
+              "male": {
+                  "ar": "ar-SA-HamedNeural",
+                  "fr": "fr-FR-HenriNeural",
+                  "en": "en-US-GuyNeural",
+              }[language],
+
+              "female": {
+                  "ar": "ar-SA-ZariyahNeural",
+                  "fr": "fr-FR-DeniseNeural",
+                  "en": "en-US-JennyNeural",
+              }[language],
+          }
+
+          if voice_key in {
+              "",
+              "none",
+              "no-voice",
+              "disabled",
+          }:
+              voice_name = "no-voice"
+
+          elif voice_key in voice_map:
+              voice_name = voice_map[voice_key]
+
+          elif "neural" in voice:
+              voice_name = voice.strip()
+
+          else:
+              voice_name = voice_map.get(
+                  f"{language}-male",
+                  "en-US-GuyNeural",
+              )
+
+          # --------------------------------------------------------
+          # SUBTITLE SETTINGS
+          # --------------------------------------------------------
+
+          subtitle_enabled = bool(subtitles)
+
+          if not subtitle_enabled:
+              subtitle_provider = ""
+
+          elif subtitle_provider == "none":
+              subtitle_provider = ""
+
+          # --------------------------------------------------------
+          # MUSIC SETTINGS
+          # --------------------------------------------------------
+
+          bgm_type = "random" if bool(music) else ""
+
+          # --------------------------------------------------------
+          # SCRIPT LENGTH TARGET
+          # --------------------------------------------------------
+
+          duration_int = int(duration)
+
+          words_per_second = {
+              "ar": 2.0,
+              "fr": 2.25,
+              "en": 2.25,
+          }[language]
+
+          target_words = round(
+              duration_int * words_per_second
+          )
+
+          min_words = max(
+              20,
+              round(target_words * 0.88)
+          )
+
+          max_words = round(
+              target_words * 1.12
+          )
+
+          # --------------------------------------------------------
+          # SCRIPT INSTRUCTION
+          # --------------------------------------------------------
+
+          script_prompt = (
+              f"Create a professional short-form video narration "
+              f"in {video_language}. "
+              f"The requested final duration is approximately "
+              f"{duration_int} seconds. "
+              f"Write approximately {target_words} words, "
+              f"with an acceptable range of {min_words}-{max_words} words. "
+              f"Do not write a title. "
+              f"Do not add scene labels. "
+              f"Do not add bullet points. "
+              f"Do not explain your instructions. "
+              f"Write only the narration. "
+              f"Make every sentence useful for visual storytelling. "
+              f"Use natural spoken language suitable for a short "
+              f"social-media video. "
+              f"Keep the narration tightly focused on this topic: "
+              f"{subject}"
+          )
+
+          # --------------------------------------------------------
+          # PARAGRAPH COUNT
+          # --------------------------------------------------------
+
+          if duration_int <= 60:
+              paragraph_number = 1
+          elif duration_int <= 90:
+              paragraph_number = 2
+          else:
+              paragraph_number = 3
+
+          # --------------------------------------------------------
+          # WRITE GITHUB ENV SAFELY
+          # --------------------------------------------------------
+
+          env_file = os.environ["GITHUB_ENV"]
+
+          values = {
+              "JOB_ID": job_id,
+              "VIDEO_SUBJECT": subject,
+              "ASPECT": aspect,
+              "VIDEO_COUNT": str(count_int),
+              "LANGUAGE": language,
+              "VIDEO_LANGUAGE": video_language,
+              "DURATION": str(duration_int),
+              "VOICE_NAME": voice_name,
+              "SUBTITLE_ENABLED": "true" if subtitle_enabled else "false",
+              "SUBTITLE_PROVIDER": subtitle_provider,
+              "VIDEO_SOURCE": video_source,
+              "BGM_TYPE": bgm_type,
+              "USER_SCRIPT": user_script,
+              "SCRIPT_PROMPT": script_prompt,
+              "PARAGRAPH_NUMBER": str(paragraph_number),
+              "TARGET_WORDS": str(target_words),
+              "MIN_WORDS": str(min_words),
+              "MAX_WORDS": str(max_words),
+          }
+
+          with open(env_file, "a", encoding="utf-8") as f:
+              for name, value in values.items():
+                  value = str(value)
+
+                  delimiter = (
+                      f"MPT_{name}_"
+                      f"{os.getpid()}_END"
+                  )
+
+                  f.write(
+                      f"{name}<<{delimiter}\n"
+                  )
+                  f.write(value)
+                  f.write("\n")
+                  f.write(f"{delimiter}\n")
+
+          print("==========================================")
+          print("MPT REQUEST")
+          print("==========================================")
+          print(f"JOB_ID            : {job_id}")
+          print(f"SUBJECT           : {subject}")
+          print(f"LANGUAGE          : {video_language}")
+          print(f"ASPECT            : {aspect}")
+          print(f"DURATION          : {duration_int}s")
+          print(f"TARGET WORDS      : {target_words}")
+          print(f"VOICE             : {voice_name}")
+          print(f"SUBTITLES         : {subtitle_enabled}")
+          print(f"SUBTITLE PROVIDER : {subtitle_provider or 'disabled'}")
+          print(f"VIDEO SOURCE      : {video_source}")
+          print(f"MUSIC             : {bgm_type or 'disabled'}")
+          print(f"VIDEO COUNT       : {count_int}")
+          print(f"USER SCRIPT       : {'YES' if user_script else 'NO'}")
+          print("==========================================")
 
 
       # ============================================================
@@ -155,7 +463,7 @@ jobs:
 
 
       # ============================================================
-      # 5. SYSTEM DEPENDENCIES
+      # 5. INSTALL SYSTEM DEPENDENCIES
       # ============================================================
 
       - name: Install system dependencies
@@ -255,7 +563,7 @@ jobs:
           set -e
 
           if [ -z "$OPENROUTER_API_KEY" ]; then
-            echo "ERROR: OPENROUTER_API_KEY GitHub Secret is missing."
+            echo "ERROR: OPENROUTER_API_KEY is missing."
             exit 1
           fi
 
@@ -276,7 +584,7 @@ jobs:
           set -e
 
           if [ -z "$PIXABAY_API_KEY" ]; then
-            echo "ERROR: PIXABAY_API_KEY GitHub Secret is missing."
+            echo "ERROR: PIXABAY_API_KEY is missing."
             exit 1
           fi
 
@@ -299,12 +607,22 @@ jobs:
           set -e
 
           python3 - <<'PY'
+          import json
           import os
           import re
           from pathlib import Path
 
-          openrouter_key = os.environ["OPENROUTER_API_KEY"].strip()
-          pixabay_key = os.environ["PIXABAY_API_KEY"].strip()
+          openrouter_key = os.environ[
+              "OPENROUTER_API_KEY"
+          ].strip()
+
+          pixabay_key = os.environ[
+              "PIXABAY_API_KEY"
+          ].strip()
+
+          subtitle_provider = os.environ[
+              "SUBTITLE_PROVIDER"
+          ].strip()
 
           source = Path("config.example.toml")
           target = Path("config.toml")
@@ -314,7 +632,9 @@ jobs:
                   "ERROR: config.example.toml not found"
               )
 
-          text = source.read_text(encoding="utf-8")
+          text = source.read_text(
+              encoding="utf-8"
+          )
 
           # --------------------------------------------------------
           # LLM PROVIDER
@@ -329,88 +649,81 @@ jobs:
           )
 
           # --------------------------------------------------------
-          # OPENROUTER API KEY
+          # OPENROUTER
           # --------------------------------------------------------
-
-          if "openrouter_api_key =" not in text:
-              raise SystemExit(
-                  "ERROR: openrouter_api_key setting not found"
-              )
 
           text = re.sub(
               r'^openrouter_api_key\s*=.*$',
-              f'openrouter_api_key = "{openrouter_key}"',
+              "openrouter_api_key = "
+              + json.dumps(openrouter_key),
               text,
               count=1,
               flags=re.MULTILINE
           )
-
-          # --------------------------------------------------------
-          # OPENROUTER BASE URL
-          # --------------------------------------------------------
 
           text = re.sub(
               r'^openrouter_base_url\s*=.*$',
-              'openrouter_base_url = "https://openrouter.ai/api/v1"',
+              'openrouter_base_url = '
+              '"https://openrouter.ai/api/v1"',
               text,
               count=1,
               flags=re.MULTILINE
           )
-
-          # --------------------------------------------------------
-          # OPENROUTER MODEL
-          # --------------------------------------------------------
 
           text = re.sub(
               r'^openrouter_model_name\s*=.*$',
-              'openrouter_model_name = "openrouter/free"',
+              'openrouter_model_name = '
+              '"openrouter/free"',
               text,
               count=1,
               flags=re.MULTILINE
           )
 
           # --------------------------------------------------------
-          # PIXABAY SOURCE
+          # PIXABAY
           # --------------------------------------------------------
 
-          if 'video_source = "pexels"' in text:
-              text = text.replace(
-                  'video_source = "pexels"',
-                  'video_source = "pixabay"',
-                  1
-              )
+          text = re.sub(
+              r'^video_source\s*=.*$',
+              'video_source = "pixabay"',
+              text,
+              count=1,
+              flags=re.MULTILINE
+          )
 
-          elif 'video_source = "pixabay"' not in text:
-              raise SystemExit(
-                  "ERROR: video_source setting not found"
-              )
+          text = re.sub(
+              r'^pixabay_api_keys\s*=.*$',
+              "pixabay_api_keys = "
+              + json.dumps([pixabay_key]),
+              text,
+              count=1,
+              flags=re.MULTILINE
+          )
 
           # --------------------------------------------------------
-          # PIXABAY API KEY
+          # SUBTITLE PROVIDER
           # --------------------------------------------------------
 
-          if "pixabay_api_keys = []" in text:
+          text = re.sub(
+              r'^subtitle_provider\s*=.*$',
+              "subtitle_provider = "
+              + json.dumps(subtitle_provider),
+              text,
+              count=1,
+              flags=re.MULTILINE
+          )
 
-              text = text.replace(
-                  "pixabay_api_keys = []",
-                  f'pixabay_api_keys = ["{pixabay_key}"]',
-                  1
-              )
+          # --------------------------------------------------------
+          # MATERIAL MATCHING
+          # --------------------------------------------------------
 
-          elif "pixabay_api_keys =" in text:
-
-              text = re.sub(
-                  r'^pixabay_api_keys\s*=.*$',
-                  f'pixabay_api_keys = ["{pixabay_key}"]',
-                  text,
-                  count=1,
-                  flags=re.MULTILINE
-              )
-
-          else:
-              raise SystemExit(
-                  "ERROR: pixabay_api_keys setting not found"
-              )
+          text = re.sub(
+              r'^match_materials_to_script\s*=.*$',
+              'match_materials_to_script = true',
+              text,
+              count=1,
+              flags=re.MULTILINE
+          )
 
           target.write_text(
               text,
@@ -418,20 +731,22 @@ jobs:
           )
 
           print("==========================================")
-          print("MPT CONFIG CREATED")
+          print("MPT CONFIGURATION")
           print("==========================================")
-          print("LLM provider : openrouter")
-          print("LLM model    : openrouter/free")
-          print("LLM base URL : https://openrouter.ai/api/v1")
-          print("Video source : pixabay")
-          print("OpenRouter   : CONFIGURED")
-          print("Pixabay      : CONFIGURED")
+          print("LLM              : OpenRouter")
+          print("MODEL            : openrouter/free")
+          print("VIDEO SOURCE     : Pixabay")
+          print(
+              "SUBTITLE PROVIDER:",
+              subtitle_provider or "disabled"
+          )
+          print("SCRIPT MATCHING  : enabled")
           print("==========================================")
           PY
 
           echo ""
-          echo "CONFIG CHECK:"
-          echo ""
+          echo "CONFIG CHECK"
+          echo "------------"
 
           grep -n '^llm_provider' config.toml || true
 
@@ -447,12 +762,138 @@ jobs:
           grep -n '^pixabay_api_keys' config.toml \
             | sed 's/=.*/= [HIDDEN]/'
 
-          echo ""
-          echo "=========================================="
+          grep -n '^subtitle_provider' config.toml || true
+
+          grep -n '^match_materials_to_script' config.toml || true
+
+          echo "------------"
 
 
       # ============================================================
-      # 12. CALLBACK - AI SCRIPT
+      # 12. CREATE THE EXACT MPT TASK MANIFEST
+      # ============================================================
+
+      - name: Create MPT task manifest
+        working-directory: MoneyPrinterTurbo
+        shell: bash
+        run: |
+          set -e
+
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          subject = os.environ["VIDEO_SUBJECT"]
+          user_script = os.environ["USER_SCRIPT"].strip()
+
+          task = {
+              "video_subject": subject,
+              "video_script": user_script,
+              "video_terms": [],
+              "video_source": "pixabay",
+              "video_materials": None,
+
+              "video_count": int(
+                  os.environ["VIDEO_COUNT"]
+              ),
+
+              "video_aspect": os.environ["ASPECT"],
+
+              "video_language": os.environ[
+                  "VIDEO_LANGUAGE"
+              ],
+
+              "paragraph_number": int(
+                  os.environ["PARAGRAPH_NUMBER"]
+              ),
+
+              "video_script_prompt": os.environ[
+                  "SCRIPT_PROMPT"
+              ],
+
+              "video_concat_mode": "sequential",
+
+              "video_transition_mode": None,
+
+              "video_clip_duration": 3,
+
+              "video_clip_speed": 1.0,
+
+              "match_materials_to_script": True,
+
+              "video_fit_mode": "cover",
+
+              "n_threads": 2,
+
+              "voice_name": os.environ[
+                  "VOICE_NAME"
+              ],
+
+              "voice_volume": 1.0,
+
+              "voice_rate": 1.0,
+
+              "bgm_type": os.environ[
+                  "BGM_TYPE"
+              ],
+
+              "bgm_file": "",
+
+              "bgm_volume": 0.15,
+
+              "subtitle_enabled":
+                  os.environ[
+                      "SUBTITLE_ENABLED"
+                  ].lower() == "true",
+          }
+
+          # Remove optional empty values that can interfere
+          # with model validation.
+          if not user_script:
+              task.pop("video_script", None)
+
+          if not task["video_terms"]:
+              task.pop("video_terms")
+
+          if task["video_materials"] is None:
+              task.pop("video_materials")
+
+          output = Path("mpt-task.json")
+
+          output.write_text(
+              json.dumps(
+                  [task],
+                  ensure_ascii=False,
+                  indent=2
+              ),
+              encoding="utf-8"
+          )
+
+          print("==========================================")
+          print("MPT TASK MANIFEST")
+          print("==========================================")
+
+          print(
+              json.dumps(
+                  {
+                      **task,
+                      "video_script":
+                          "[USER SCRIPT]"
+                          if user_script
+                          else "[LLM GENERATED]"
+                  },
+                  ensure_ascii=False,
+                  indent=2
+              )
+          )
+
+          print("==========================================")
+          PY
+
+
+      # ============================================================
+      # 13. CALLBACK - AI SCRIPT
       # ============================================================
 
       - name: Callback - AI script
@@ -474,28 +915,6 @@ jobs:
 
 
       # ============================================================
-      # 13. CALLBACK - PIXABAY MATERIALS
-      # ============================================================
-
-      - name: Callback - Pixabay materials
-        if: github.event_name == 'repository_dispatch'
-        shell: bash
-        run: |
-          set -e
-
-          curl -sS -f \
-            -X POST \
-            "${RENDER_CALLBACK_URL}/api/worker/jobs/${JOB_ID}/callback" \
-            -H "Content-Type: application/json" \
-            -H "X-Callback-Secret: ${RENDER_CALLBACK_SECRET}" \
-            --data '{
-              "status": "running",
-              "progress": 35,
-              "stage": "pixabay_materials"
-            }'
-
-
-      # ============================================================
       # 14. RUN MONEYPRINTERTURBO
       # ============================================================
 
@@ -513,34 +932,49 @@ jobs:
           echo "$VIDEO_SUBJECT"
 
           echo ""
-          echo "LLM:"
-          echo "OpenRouter"
+          echo "Language:"
+          echo "$VIDEO_LANGUAGE"
 
           echo ""
-          echo "Model:"
-          echo "openrouter/free"
+          echo "Target duration:"
+          echo "${DURATION}s"
 
           echo ""
-          echo "Video source:"
-          echo "Pixabay"
+          echo "Target words:"
+          echo "$TARGET_WORDS"
+
+          echo ""
+          echo "Voice:"
+          echo "$VOICE_NAME"
+
+          echo ""
+          echo "Subtitles:"
+          echo "$SUBTITLE_ENABLED"
+
+          echo ""
+          echo "Subtitle provider:"
+          echo "${SUBTITLE_PROVIDER:-disabled}"
+
+          echo ""
+          echo "Music:"
+          echo "${BGM_TYPE:-disabled}"
+
+          echo ""
+          echo "Source:"
+          echo "pixabay"
 
           echo ""
           echo "Aspect:"
           echo "$ASPECT"
 
           echo ""
-          echo "Video count:"
-          echo "$VIDEO_COUNT"
+          echo "Material matching:"
+          echo "script order"
 
           echo "=========================================="
 
           uv run python cli.py \
-            --video-script "$VIDEO_SUBJECT" \
-            --video-source pixabay \
-            --video-aspect "$ASPECT" \
-            --video-count "$VIDEO_COUNT" \
-            --voice-name no-voice \
-            --no-subtitle-enabled \
+            --batch-file ./mpt-task.json \
             --stop-at video
 
 
@@ -567,21 +1001,21 @@ jobs:
             find storage/tasks \
               -type f \
               -name "final-*.mp4" \
+              | sort \
               | head -n 1
           )"
 
           if [ -z "$FINAL_VIDEO" ]; then
-
             echo "ERROR: No final MP4 was generated."
 
             echo ""
             echo "Available task files:"
 
             find storage/tasks \
-              -maxdepth 5 \
+              -maxdepth 6 \
               -type f \
               -print \
-              | tail -n 100
+              | tail -n 150
 
             exit 1
           fi
@@ -596,7 +1030,67 @@ jobs:
 
 
       # ============================================================
-      # 16. CALLBACK - PROCESSING
+      # 16. INSPECT FINAL VIDEO DURATION
+      # ============================================================
+
+      - name: Inspect final video
+        working-directory: MoneyPrinterTurbo
+        shell: bash
+        run: |
+          set -e
+
+          echo "=========================================="
+          echo "FINAL VIDEO INSPECTION"
+          echo "=========================================="
+
+          ACTUAL_DURATION="$(
+            ffprobe \
+              -v error \
+              -show_entries format=duration \
+              -of default=noprint_wrappers=1:nokey=1 \
+              "$FINAL_VIDEO"
+          )"
+
+          VIDEO_WIDTH="$(
+            ffprobe \
+              -v error \
+              -select_streams v:0 \
+              -show_entries stream=width \
+              -of csv=p=0 \
+              "$FINAL_VIDEO"
+          )"
+
+          VIDEO_HEIGHT="$(
+            ffprobe \
+              -v error \
+              -select_streams v:0 \
+              -show_entries stream=height \
+              -of csv=p=0 \
+              "$FINAL_VIDEO"
+          )"
+
+          VIDEO_AUDIO="$(
+            ffprobe \
+              -v error \
+              -select_streams a:0 \
+              -show_entries stream=codec_name \
+              -of csv=p=0 \
+              "$FINAL_VIDEO" \
+              || true
+          )"
+
+          echo "Expected duration : ${DURATION}s"
+          echo "Actual duration   : ${ACTUAL_DURATION}s"
+          echo "Resolution        : ${VIDEO_WIDTH}x${VIDEO_HEIGHT}"
+          echo "Audio codec       : ${VIDEO_AUDIO:-NONE}"
+
+          echo "ACTUAL_DURATION=$ACTUAL_DURATION" >> "$GITHUB_ENV"
+
+          echo "=========================================="
+
+
+      # ============================================================
+      # 17. CALLBACK - PROCESSING
       # ============================================================
 
       - name: Callback - Processing
@@ -612,13 +1106,13 @@ jobs:
             -H "X-Callback-Secret: ${RENDER_CALLBACK_SECRET}" \
             --data '{
               "status": "running",
-              "progress": 80,
+              "progress": 85,
               "stage": "processing"
             }'
 
 
       # ============================================================
-      # 17. UPLOAD VIDEO TO RENDER
+      # 18. UPLOAD VIDEO TO RENDER
       # ============================================================
 
       - name: Upload video to Render
@@ -648,11 +1142,13 @@ jobs:
           import json
           import sys
 
-          data = json.loads(sys.stdin.read())
+          data = json.loads(
+              sys.stdin.read()
+          )
 
           if "output_url" not in data:
               raise SystemExit(
-                  "ERROR: output_url missing from upload response"
+                  "ERROR: output_url missing"
               )
 
           print(data["output_url"])
@@ -667,7 +1163,6 @@ jobs:
           echo "OUTPUT_URL=$OUTPUT_URL" >> "$GITHUB_ENV"
 
           echo "Video uploaded successfully."
-
           echo "Output URL:"
           echo "$OUTPUT_URL"
 
@@ -675,7 +1170,7 @@ jobs:
 
 
       # ============================================================
-      # 18. UPLOAD ARTIFACT
+      # 19. UPLOAD ARTIFACT
       # ============================================================
 
       - name: Upload final video artifact
@@ -687,7 +1182,7 @@ jobs:
 
 
       # ============================================================
-      # 19. CALLBACK COMPLETED
+      # 20. CALLBACK COMPLETED
       # ============================================================
 
       - name: Callback - Completed
@@ -700,17 +1195,27 @@ jobs:
           import json
           import os
 
-          base = os.environ["RENDER_CALLBACK_URL"]
-          output = os.environ["OUTPUT_URL"]
+          base = os.environ[
+              "RENDER_CALLBACK_URL"
+          ]
+
+          output = os.environ[
+              "OUTPUT_URL"
+          ]
 
           payload = {
               "status": "completed",
               "progress": 100,
               "stage": "completed",
-              "output_url": base + output
+              "output_url": base + output,
           }
 
-          print(json.dumps(payload))
+          print(
+              json.dumps(
+                  payload,
+                  ensure_ascii=False
+              )
+          )
           PY
 
           echo "=========================================="
@@ -730,12 +1235,13 @@ jobs:
 
           echo ""
           echo "=========================================="
-          echo "MPT OPENROUTER + PIXABAY WORKER — SUCCESS"
+          echo "MPT OPENROUTER + PIXABAY"
+          echo "WORKER — SUCCESS"
           echo "=========================================="
 
 
       # ============================================================
-      # 20. CALLBACK FAILED
+      # 21. CALLBACK FAILED
       # ============================================================
 
       - name: Callback - Failed
@@ -745,7 +1251,8 @@ jobs:
           set +e
 
           echo "=========================================="
-          echo "MPT OPENROUTER + PIXABAY WORKER — FAILED"
+          echo "MPT OPENROUTER + PIXABAY"
+          echo "WORKER — FAILED"
           echo "=========================================="
 
           echo "JOB_ID:"
