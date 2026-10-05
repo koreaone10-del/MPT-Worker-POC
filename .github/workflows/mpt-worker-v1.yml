@@ -38,13 +38,13 @@ env:
 
 jobs:
   mpt:
-    name: MPT Pixabay Worker
+    name: MPT OpenRouter + Pixabay Worker
     runs-on: ubuntu-24.04
 
     steps:
 
       # ============================================================
-      # 1. Prepare job variables
+      # 1. PREPARE VARIABLES
       # ============================================================
 
       - name: Prepare job variables
@@ -92,19 +92,18 @@ jobs:
           echo "VIDEO_COUNT=$VIDEO_COUNT" >> "$GITHUB_ENV"
 
           echo "=========================================="
-          echo "MPT PIXABAY WORKER"
+          echo "MPT OPENROUTER + PIXABAY WORKER"
           echo "=========================================="
-          echo "EVENT        : ${{ github.event_name }}"
-          echo "JOB_ID       : $JOB_ID"
-          echo "SUBJECT      : $VIDEO_SUBJECT"
-          echo "ASPECT       : $ASPECT"
-          echo "VIDEO COUNT  : $VIDEO_COUNT"
+          echo "EVENT       : ${{ github.event_name }}"
+          echo "JOB_ID      : $JOB_ID"
+          echo "SUBJECT     : $VIDEO_SUBJECT"
+          echo "ASPECT      : $ASPECT"
+          echo "VIDEO COUNT : $VIDEO_COUNT"
           echo "=========================================="
 
 
       # ============================================================
-      # 2. Callback - Starting
-      #    ONLY for real Render jobs
+      # 2. CALLBACK STARTING
       # ============================================================
 
       - name: Callback - Starting
@@ -126,7 +125,7 @@ jobs:
 
 
       # ============================================================
-      # 3. Checkout worker repository
+      # 3. CHECKOUT
       # ============================================================
 
       - name: Checkout worker repository
@@ -134,8 +133,7 @@ jobs:
 
 
       # ============================================================
-      # 4. Callback - Preparing
-      #    ONLY for real Render jobs
+      # 4. CALLBACK PREPARING
       # ============================================================
 
       - name: Callback - Preparing
@@ -157,7 +155,7 @@ jobs:
 
 
       # ============================================================
-      # 5. Install system dependencies
+      # 5. SYSTEM DEPENDENCIES
       # ============================================================
 
       - name: Install system dependencies
@@ -186,7 +184,7 @@ jobs:
 
 
       # ============================================================
-      # 6. Clone MoneyPrinterTurbo
+      # 6. CLONE MONEYPRINTERTURBO
       # ============================================================
 
       - name: Clone MoneyPrinterTurbo
@@ -206,13 +204,15 @@ jobs:
           echo "=========================================="
           echo "MONEYPRINTERTURBO"
           echo "=========================================="
+
           echo "Commit:"
           git rev-parse HEAD
+
           echo "=========================================="
 
 
       # ============================================================
-      # 7. Install uv
+      # 7. INSTALL UV
       # ============================================================
 
       - name: Install uv
@@ -230,7 +230,7 @@ jobs:
 
 
       # ============================================================
-      # 8. Install MPT dependencies
+      # 8. INSTALL MPT DEPENDENCIES
       # ============================================================
 
       - name: Install MPT dependencies
@@ -243,7 +243,28 @@ jobs:
 
 
       # ============================================================
-      # 9. Verify Pixabay API key
+      # 9. VERIFY OPENROUTER
+      # ============================================================
+
+      - name: Verify OpenRouter configuration
+        shell: bash
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+
+        run: |
+          set -e
+
+          if [ -z "$OPENROUTER_API_KEY" ]; then
+            echo "ERROR: OPENROUTER_API_KEY GitHub Secret is missing."
+            exit 1
+          fi
+
+          echo "OpenRouter API key detected."
+          echo "Key length: ${#OPENROUTER_API_KEY}"
+
+
+      # ============================================================
+      # 10. VERIFY PIXABAY
       # ============================================================
 
       - name: Verify Pixabay configuration
@@ -264,13 +285,14 @@ jobs:
 
 
       # ============================================================
-      # 10. Create MPT config.toml
+      # 11. CREATE MPT CONFIG
       # ============================================================
 
       - name: Create MPT config
         working-directory: MoneyPrinterTurbo
         shell: bash
         env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
 
         run: |
@@ -278,74 +300,181 @@ jobs:
 
           python3 - <<'PY'
           import os
+          import re
           from pathlib import Path
 
-          key = os.environ["PIXABAY_API_KEY"].strip()
+          openrouter_key = os.environ["OPENROUTER_API_KEY"].strip()
+          pixabay_key = os.environ["PIXABAY_API_KEY"].strip()
 
           source = Path("config.example.toml")
           target = Path("config.toml")
 
           if not source.exists():
-              raise SystemExit("ERROR: config.example.toml not found")
+              raise SystemExit(
+                  "ERROR: config.example.toml not found"
+              )
 
           text = source.read_text(encoding="utf-8")
 
-          # Force Pixabay as video source.
+          # --------------------------------------------------------
+          # LLM PROVIDER
+          # --------------------------------------------------------
+
+          text = re.sub(
+              r'^llm_provider\s*=.*$',
+              'llm_provider = "openrouter"',
+              text,
+              count=1,
+              flags=re.MULTILINE
+          )
+
+          # --------------------------------------------------------
+          # OPENROUTER API KEY
+          # --------------------------------------------------------
+
+          if "openrouter_api_key =" not in text:
+              raise SystemExit(
+                  "ERROR: openrouter_api_key setting not found"
+              )
+
+          text = re.sub(
+              r'^openrouter_api_key\s*=.*$',
+              f'openrouter_api_key = "{openrouter_key}"',
+              text,
+              count=1,
+              flags=re.MULTILINE
+          )
+
+          # --------------------------------------------------------
+          # OPENROUTER BASE URL
+          # --------------------------------------------------------
+
+          text = re.sub(
+              r'^openrouter_base_url\s*=.*$',
+              'openrouter_base_url = "https://openrouter.ai/api/v1"',
+              text,
+              count=1,
+              flags=re.MULTILINE
+          )
+
+          # --------------------------------------------------------
+          # OPENROUTER MODEL
+          # --------------------------------------------------------
+
+          text = re.sub(
+              r'^openrouter_model_name\s*=.*$',
+              'openrouter_model_name = "openrouter/free"',
+              text,
+              count=1,
+              flags=re.MULTILINE
+          )
+
+          # --------------------------------------------------------
+          # PIXABAY SOURCE
+          # --------------------------------------------------------
+
           if 'video_source = "pexels"' in text:
               text = text.replace(
                   'video_source = "pexels"',
                   'video_source = "pixabay"',
                   1
               )
+
           elif 'video_source = "pixabay"' not in text:
               raise SystemExit(
-                  "ERROR: Could not locate video_source setting in config.example.toml"
+                  "ERROR: video_source setting not found"
               )
 
-          # Configure Pixabay API key.
+          # --------------------------------------------------------
+          # PIXABAY API KEY
+          # --------------------------------------------------------
+
           if "pixabay_api_keys = []" in text:
+
               text = text.replace(
                   "pixabay_api_keys = []",
-                  f'pixabay_api_keys = ["{key}"]',
+                  f'pixabay_api_keys = ["{pixabay_key}"]',
                   1
               )
+
           elif "pixabay_api_keys =" in text:
-              import re
 
               text = re.sub(
                   r'^pixabay_api_keys\s*=.*$',
-                  f'pixabay_api_keys = ["{key}"]',
+                  f'pixabay_api_keys = ["{pixabay_key}"]',
                   text,
                   count=1,
                   flags=re.MULTILINE
               )
+
           else:
               raise SystemExit(
                   "ERROR: pixabay_api_keys setting not found"
               )
 
-          target.write_text(text, encoding="utf-8")
+          target.write_text(
+              text,
+              encoding="utf-8"
+          )
 
-          print("config.toml created successfully.")
-          print("video_source = pixabay")
-          print("pixabay_api_keys = [HIDDEN]")
+          print("==========================================")
+          print("MPT CONFIG CREATED")
+          print("==========================================")
+          print("LLM provider : openrouter")
+          print("LLM model    : openrouter/free")
+          print("LLM base URL : https://openrouter.ai/api/v1")
+          print("Video source : pixabay")
+          print("OpenRouter   : CONFIGURED")
+          print("Pixabay      : CONFIGURED")
+          print("==========================================")
           PY
 
-          echo "=========================================="
-          echo "MPT CONFIG CHECK"
-          echo "=========================================="
+          echo ""
+          echo "CONFIG CHECK:"
+          echo ""
+
+          grep -n '^llm_provider' config.toml || true
+
+          grep -n '^openrouter_base_url' config.toml || true
+
+          grep -n '^openrouter_model_name' config.toml || true
+
+          grep -n '^openrouter_api_key' config.toml \
+            | sed 's/=.*/= [HIDDEN]/'
 
           grep -n '^video_source' config.toml || true
 
           grep -n '^pixabay_api_keys' config.toml \
             | sed 's/=.*/= [HIDDEN]/'
 
+          echo ""
           echo "=========================================="
 
 
       # ============================================================
-      # 11. Callback - Pixabay materials
-      #     ONLY for real Render jobs
+      # 12. CALLBACK - AI SCRIPT
+      # ============================================================
+
+      - name: Callback - AI script
+        if: github.event_name == 'repository_dispatch'
+        shell: bash
+        run: |
+          set -e
+
+          curl -sS -f \
+            -X POST \
+            "${RENDER_CALLBACK_URL}/api/worker/jobs/${JOB_ID}/callback" \
+            -H "Content-Type: application/json" \
+            -H "X-Callback-Secret: ${RENDER_CALLBACK_SECRET}" \
+            --data '{
+              "status": "running",
+              "progress": 20,
+              "stage": "ai_script"
+            }'
+
+
+      # ============================================================
+      # 13. CALLBACK - PIXABAY MATERIALS
       # ============================================================
 
       - name: Callback - Pixabay materials
@@ -361,13 +490,13 @@ jobs:
             -H "X-Callback-Secret: ${RENDER_CALLBACK_SECRET}" \
             --data '{
               "status": "running",
-              "progress": 25,
+              "progress": 35,
               "stage": "pixabay_materials"
             }'
 
 
       # ============================================================
-      # 12. Run MoneyPrinterTurbo
+      # 14. RUN MONEYPRINTERTURBO
       # ============================================================
 
       - name: Run MoneyPrinterTurbo
@@ -384,8 +513,16 @@ jobs:
           echo "$VIDEO_SUBJECT"
 
           echo ""
+          echo "LLM:"
+          echo "OpenRouter"
+
+          echo ""
+          echo "Model:"
+          echo "openrouter/free"
+
+          echo ""
           echo "Video source:"
-          echo "pixabay"
+          echo "Pixabay"
 
           echo ""
           echo "Aspect:"
@@ -408,7 +545,7 @@ jobs:
 
 
       # ============================================================
-      # 13. Find generated video
+      # 15. FIND FINAL VIDEO
       # ============================================================
 
       - name: Find generated video
@@ -434,10 +571,12 @@ jobs:
           )"
 
           if [ -z "$FINAL_VIDEO" ]; then
+
             echo "ERROR: No final MP4 was generated."
 
             echo ""
             echo "Available task files:"
+
             find storage/tasks \
               -maxdepth 5 \
               -type f \
@@ -457,8 +596,7 @@ jobs:
 
 
       # ============================================================
-      # 14. Callback - Processing
-      #     ONLY for real Render jobs
+      # 16. CALLBACK - PROCESSING
       # ============================================================
 
       - name: Callback - Processing
@@ -480,8 +618,7 @@ jobs:
 
 
       # ============================================================
-      # 15. Upload video to Render
-      #     ONLY for real Render jobs
+      # 17. UPLOAD VIDEO TO RENDER
       # ============================================================
 
       - name: Upload video to Render
@@ -530,6 +667,7 @@ jobs:
           echo "OUTPUT_URL=$OUTPUT_URL" >> "$GITHUB_ENV"
 
           echo "Video uploaded successfully."
+
           echo "Output URL:"
           echo "$OUTPUT_URL"
 
@@ -537,8 +675,7 @@ jobs:
 
 
       # ============================================================
-      # 16. Upload final video artifact
-      #     Works for manual AND real jobs
+      # 18. UPLOAD ARTIFACT
       # ============================================================
 
       - name: Upload final video artifact
@@ -550,8 +687,7 @@ jobs:
 
 
       # ============================================================
-      # 17. Callback - Completed
-      #     ONLY for real Render jobs
+      # 19. CALLBACK COMPLETED
       # ============================================================
 
       - name: Callback - Completed
@@ -559,18 +695,6 @@ jobs:
         shell: bash
         run: |
           set -e
-
-          FULL_OUTPUT_URL="${RENDER_CALLBACK_URL}${OUTPUT_URL}"
-
-          echo "=========================================="
-          echo "CALLBACK - COMPLETED"
-          echo "=========================================="
-          echo "JOB_ID:"
-          echo "$JOB_ID"
-          echo ""
-          echo "OUTPUT URL:"
-          echo "$FULL_OUTPUT_URL"
-          echo "=========================================="
 
           python3 - <<'PY' > /tmp/completed.json
           import json
@@ -589,6 +713,14 @@ jobs:
           print(json.dumps(payload))
           PY
 
+          echo "=========================================="
+          echo "CALLBACK - COMPLETED"
+          echo "=========================================="
+
+          cat /tmp/completed.json
+
+          echo "=========================================="
+
           curl -sS -f \
             -X POST \
             "${RENDER_CALLBACK_URL}/api/worker/jobs/${JOB_ID}/callback" \
@@ -598,13 +730,12 @@ jobs:
 
           echo ""
           echo "=========================================="
-          echo "MPT PIXABAY WORKER — SUCCESS"
+          echo "MPT OPENROUTER + PIXABAY WORKER — SUCCESS"
           echo "=========================================="
 
 
       # ============================================================
-      # 18. Callback - Failed
-      #     ONLY for real Render jobs
+      # 20. CALLBACK FAILED
       # ============================================================
 
       - name: Callback - Failed
@@ -614,10 +745,12 @@ jobs:
           set +e
 
           echo "=========================================="
-          echo "MPT PIXABAY WORKER — FAILED"
+          echo "MPT OPENROUTER + PIXABAY WORKER — FAILED"
           echo "=========================================="
+
           echo "JOB_ID:"
           echo "$JOB_ID"
+
           echo "=========================================="
 
           curl -sS \
@@ -629,7 +762,7 @@ jobs:
               "status": "failed",
               "progress": 100,
               "stage": "failed",
-              "error": "GitHub MPT Pixabay Worker failed"
+              "error": "GitHub MPT OpenRouter Pixabay Worker failed"
             }'
 
           echo "Failure callback sent."
