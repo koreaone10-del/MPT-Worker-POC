@@ -1,11 +1,8 @@
 name: MPT Worker v1
 
 on:
-
   workflow_dispatch:
-
     inputs:
-
       job_id:
         description: "Job ID"
         required: true
@@ -27,64 +24,51 @@ on:
         default: "1"
 
   repository_dispatch:
-
     types:
       - mpt_job
 
-
 permissions:
-
   contents: read
 
-
 jobs:
-
   process:
-
     name: Process MPT Job
-
     runs-on: ubuntu-24.04
-
     timeout-minutes: 330
 
     env:
-
       EVENT_NAME: ${{ github.event_name }}
 
       DISPATCH_JOB_ID: ${{ github.event.client_payload.job_id }}
-
       DISPATCH_SUBJECT: ${{ github.event.client_payload.video_subject }}
-
       DISPATCH_ASPECT: ${{ github.event.client_payload.aspect }}
-
       DISPATCH_COUNT: ${{ github.event.client_payload.video_count }}
 
       MANUAL_JOB_ID: ${{ inputs.job_id }}
-
       MANUAL_SUBJECT: ${{ inputs.video_subject }}
-
       MANUAL_ASPECT: ${{ inputs.aspect }}
-
       MANUAL_COUNT: ${{ inputs.video_count }}
 
       RENDER_CALLBACK_URL: https://chibani-lotfi-ai.onrender.com
-
       RENDER_CALLBACK_SECRET: ${{ secrets.RENDER_CALLBACK_SECRET }}
-
 
     steps:
 
-      - name: Checkout worker repository
+      # ======================================================
+      # CHECKOUT
+      # ======================================================
 
+      - name: Checkout worker repository
         uses: actions/checkout@v6
 
 
+      # ======================================================
+      # DETERMINE JOB PAYLOAD
+      # ======================================================
+
       - name: Determine job payload
-
         shell: bash
-
         run: |
-
           set -e
 
           echo "Event: ${EVENT_NAME}"
@@ -133,11 +117,8 @@ jobs:
       # ======================================================
 
       - name: Callback - Starting
-
         shell: bash
-
         run: |
-
           set -e
 
           if [ -z "$RENDER_CALLBACK_SECRET" ]; then
@@ -164,11 +145,8 @@ jobs:
       # ======================================================
 
       - name: System information
-
         shell: bash
-
         run: |
-
           echo "========================================"
           echo "SYSTEM INFORMATION"
           echo "========================================"
@@ -196,11 +174,8 @@ jobs:
       # ======================================================
 
       - name: Install system packages
-
         shell: bash
-
         run: |
-
           set -e
 
           sudo apt-get update
@@ -221,15 +196,11 @@ jobs:
       # ======================================================
 
       - name: Verify FFmpeg
-
         shell: bash
-
         run: |
-
           set -e
 
           ffmpeg -version | head -n 1
-
           ffprobe -version | head -n 1
 
 
@@ -238,11 +209,8 @@ jobs:
       # ======================================================
 
       - name: Setup Python
-
         uses: actions/setup-python@v6
-
         with:
-
           python-version: "3.11"
 
 
@@ -251,11 +219,8 @@ jobs:
       # ======================================================
 
       - name: Install uv
-
         shell: bash
-
         run: |
-
           set -e
 
           python3 -m pip install --user uv
@@ -272,11 +237,8 @@ jobs:
       # ======================================================
 
       - name: Clone MoneyPrinterTurbo
-
         shell: bash
-
         run: |
-
           set -e
 
           rm -rf MoneyPrinterTurbo
@@ -309,13 +271,9 @@ jobs:
       # ======================================================
 
       - name: Install MPT dependencies
-
         shell: bash
-
         working-directory: MoneyPrinterTurbo
-
         run: |
-
           set -e
 
           uv sync --frozen
@@ -326,13 +284,9 @@ jobs:
       # ======================================================
 
       - name: Verify MPT environment
-
         shell: bash
-
         working-directory: MoneyPrinterTurbo
-
         run: |
-
           set -e
 
           uv --version
@@ -350,11 +304,8 @@ jobs:
       # ======================================================
 
       - name: Callback - Preparing
-
         shell: bash
-
         run: |
-
           set -e
 
           if [ -z "$RENDER_CALLBACK_SECRET" ]; then
@@ -377,35 +328,55 @@ jobs:
 
 
       # ======================================================
-      # CHECK TEST ASSET
+      # PREPARE TEST ASSET
       # ======================================================
 
-      - name: Check test asset
-
+      - name: Prepare test asset
         shell: bash
-
         working-directory: MoneyPrinterTurbo
-
         run: |
-
           set -e
 
-          if [ ! -f "./test_assets/test_source.mp4" ]; then
+          echo "========================================"
+          echo "PREPARING TEST VIDEO"
+          echo "========================================"
 
-            echo "ERROR: test_assets/test_source.mp4 not found"
+          mkdir -p test_assets
 
-            echo ""
-            echo "Available test assets:"
+          rm -f ./test_assets/test_source.mp4
 
-            find test_assets -maxdepth 2 -type f 2>/dev/null || true
+          echo "Generating synthetic 1080x1920 MP4..."
 
-            exit 1
+          ffmpeg \
+            -hide_banner \
+            -loglevel error \
+            -f lavfi \
+            -i "testsrc2=size=1080x1920:rate=30" \
+            -t 4 \
+            -an \
+            -c:v libx264 \
+            -preset ultrafast \
+            -pix_fmt yuv420p \
+            -movflags +faststart \
+            "./test_assets/test_source.mp4"
 
-          fi
-
-          echo "Test source found:"
+          echo ""
+          echo "Test asset created:"
 
           ls -lh ./test_assets/test_source.mp4
+
+          echo ""
+          echo "Checking generated test asset..."
+
+          ffprobe \
+            -v error \
+            -select_streams v:0 \
+            -show_entries stream=codec_name,width,height \
+            -of default=noprint_wrappers=1 \
+            ./test_assets/test_source.mp4
+
+          echo ""
+          echo "Test asset: READY"
 
 
       # ======================================================
@@ -413,11 +384,8 @@ jobs:
       # ======================================================
 
       - name: Callback - Generating
-
         shell: bash
-
         run: |
-
           set -e
 
           if [ -z "$RENDER_CALLBACK_SECRET" ]; then
@@ -444,13 +412,9 @@ jobs:
       # ======================================================
 
       - name: Run MoneyPrinterTurbo
-
         shell: bash
-
         working-directory: MoneyPrinterTurbo
-
         run: |
-
           set -e
 
           echo "========================================"
@@ -481,20 +445,22 @@ jobs:
       # ======================================================
 
       - name: Find generated videos
-
         shell: bash
-
         working-directory: MoneyPrinterTurbo
-
         run: |
-
           set -e
 
           echo "Searching for generated MP4 files..."
 
-          find storage/tasks -type f -name "final-*.mp4" -print || true
+          find storage/tasks \
+            -type f \
+            -name "final-*.mp4" \
+            -print || true
 
-          FINAL_VIDEO="$(find storage/tasks -type f -name 'final-*.mp4' | head -n 1)"
+          FINAL_VIDEO="$(find storage/tasks \
+            -type f \
+            -name 'final-*.mp4' \
+            | head -n 1)"
 
           if [ -z "$FINAL_VIDEO" ]; then
             echo "ERROR: No final MP4 found"
@@ -504,7 +470,6 @@ jobs:
           echo "FINAL_VIDEO=$FINAL_VIDEO" >> "$GITHUB_ENV"
 
           echo "Generated video:"
-
           ls -lh "$FINAL_VIDEO"
 
 
@@ -513,11 +478,8 @@ jobs:
       # ======================================================
 
       - name: Callback - Processing
-
         shell: bash
-
         run: |
-
           set -e
 
           if [ -z "$RENDER_CALLBACK_SECRET" ]; then
@@ -544,13 +506,9 @@ jobs:
       # ======================================================
 
       - name: Verify generated MP4
-
         shell: bash
-
         working-directory: MoneyPrinterTurbo
-
         run: |
-
           set -e
 
           echo "========================================"
@@ -640,11 +598,8 @@ jobs:
       # ======================================================
 
       - name: Callback - Finalizing
-
         shell: bash
-
         run: |
-
           set -e
 
           if [ -z "$RENDER_CALLBACK_SECRET" ]; then
@@ -671,11 +626,8 @@ jobs:
       # ======================================================
 
       - name: Upload worker artifact
-
         uses: actions/upload-artifact@v6
-
         with:
-
           name: mpt-worker-${{ github.run_id }}
 
           path: |
@@ -683,7 +635,6 @@ jobs:
             MoneyPrinterTurbo/*.log
 
           if-no-files-found: warn
-
           retention-days: 3
 
 
@@ -692,18 +643,14 @@ jobs:
       # ======================================================
 
       - name: Upload task artifact
-
         uses: actions/upload-artifact@v6
-
         with:
-
           name: mpt-task-${{ github.run_id }}
 
           path: |
             MoneyPrinterTurbo/storage/tasks/**/final-*.mp4
 
           if-no-files-found: error
-
           retention-days: 3
 
 
@@ -712,13 +659,9 @@ jobs:
       # ======================================================
 
       - name: Callback - Completed
-
         if: success()
-
         shell: bash
-
         run: |
-
           set -e
 
           if [ -z "$RENDER_CALLBACK_SECRET" ]; then
@@ -757,13 +700,9 @@ jobs:
       # ======================================================
 
       - name: Callback - Failed
-
         if: failure()
-
         shell: bash
-
         run: |
-
           set +e
 
           if [ -z "$RENDER_CALLBACK_SECRET" ]; then
