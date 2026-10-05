@@ -18,110 +18,414 @@ jobs:
     timeout-minutes: 360
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
 
+      # ============================================================
+      # 1. Checkout
+      # ============================================================
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+
+      # ============================================================
+      # 2. Inspect GitHub Runner
+      # ============================================================
       - name: Inspect runner
         run: |
+          echo "========================================"
+          echo "GITHUB ACTIONS RUNNER"
+          echo "========================================"
+
+          echo ""
           echo "===== CPU ====="
           nproc
           lscpu | sed -n '1,25p'
 
+          echo ""
           echo "===== RAM ====="
           free -h
 
+          echo ""
           echo "===== DISK ====="
           df -h /
 
+          echo ""
           echo "===== OS ====="
           cat /etc/os-release
 
+          echo ""
+          echo "===== KERNEL ====="
+          uname -a
+
+
+      # ============================================================
+      # 3. Install FFmpeg
+      # ============================================================
       - name: Install FFmpeg
         run: |
+          echo "Installing FFmpeg..."
+
           sudo apt-get update
-          sudo apt-get install -y ffmpeg git curl ca-certificates
+          sudo apt-get install -y \
+            ffmpeg \
+            git \
+            curl \
+            ca-certificates
+
+          echo ""
+          echo "===== FFmpeg ====="
+          which ffmpeg
           ffmpeg -version | head -n 1
 
+          echo ""
+          echo "===== FFprobe ====="
+          which ffprobe
+          ffprobe -version | head -n 1
+
+
+      # ============================================================
+      # 4. Setup Python 3.11
+      # ============================================================
       - name: Setup Python 3.11
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: "3.11"
 
+
+      # ============================================================
+      # 5. Verify Python
+      # ============================================================
+      - name: Verify Python
+        run: |
+          echo "========================================"
+          echo "PYTHON"
+          echo "========================================"
+
+          python --version
+          python -c "import sys; print(sys.executable)"
+
+          python -m pip --version
+
+
+      # ============================================================
+      # 6. Install uv
+      # ============================================================
+      - name: Install uv
+        run: |
+          echo "Installing uv..."
+
+          python -m pip install --upgrade pip
+          python -m pip install uv
+
+          echo ""
+          echo "===== uv ====="
+          uv --version
+
+
+      # ============================================================
+      # 7. Install yt-dlp
+      # ============================================================
       - name: Install yt-dlp
         run: |
-          python -m pip install --upgrade pip
+          echo "Installing yt-dlp..."
+
           python -m pip install --no-cache-dir yt-dlp
+
+          echo ""
+          echo "===== yt-dlp ====="
           yt-dlp --version
 
+
+      # ============================================================
+      # 8. Clone MoneyPrinterTurbo
+      # ============================================================
       - name: Clone MoneyPrinterTurbo
         if: ${{ inputs.run_mpt_smoke }}
         run: |
+          echo "========================================"
+          echo "CLONING MONEYPRINTERTURBO"
+          echo "========================================"
+
           git clone --depth 1 \
             https://github.com/harry0703/MoneyPrinterTurbo.git \
             mpt
 
           cd mpt
+
+          echo ""
+          echo "===== Git commit ====="
           git rev-parse HEAD
 
+          echo ""
+          echo "===== MPT root ====="
+          pwd
+
+          echo ""
+          echo "===== MPT files ====="
+          ls -la
+
+
+      # ============================================================
+      # 9. Inspect MPT dependency files
+      # ============================================================
+      - name: Inspect MPT dependency files
+        if: ${{ inputs.run_mpt_smoke }}
+        run: |
+          cd mpt
+
+          echo "========================================"
+          echo "MPT DEPENDENCY FILES"
+          echo "========================================"
+
+          echo ""
+          echo "===== pyproject.toml ====="
+          if [ -f pyproject.toml ]; then
+            echo "FOUND"
+            sed -n '1,180p' pyproject.toml
+          else
+            echo "NOT FOUND"
+          fi
+
+          echo ""
+          echo "===== uv.lock ====="
+          if [ -f uv.lock ]; then
+            echo "FOUND"
+            ls -lh uv.lock
+          else
+            echo "NOT FOUND"
+          fi
+
+          echo ""
+          echo "===== requirements.txt ====="
+          if [ -f requirements.txt ]; then
+            echo "FOUND"
+            ls -lh requirements.txt
+          else
+            echo "NOT FOUND"
+          fi
+
+
+      # ============================================================
+      # 10. Install MPT dependencies
+      # ============================================================
       - name: Install MPT dependencies
         if: ${{ inputs.run_mpt_smoke }}
         run: |
           cd mpt
-          python -m pip install --upgrade pip
-          python -m pip install --no-cache-dir -r requirements.txt
 
-            - name: MPT smoke test
+          echo "========================================"
+          echo "INSTALLING MPT DEPENDENCIES"
+          echo "========================================"
+
+          echo ""
+          echo "Using uv + uv.lock when available."
+
+          if [ -f uv.lock ]; then
+            echo "uv.lock found."
+            echo "Running: uv sync --frozen"
+
+            uv sync --frozen
+          else
+            echo "uv.lock not found."
+            echo "Falling back to requirements.txt."
+
+            python -m pip install \
+              --no-cache-dir \
+              -r requirements.txt
+          fi
+
+
+      # ============================================================
+      # 11. Verify MPT Python environment
+      # ============================================================
+      - name: Verify MPT Python environment
         if: ${{ inputs.run_mpt_smoke }}
         run: |
           cd mpt
 
+          echo "========================================"
+          echo "VERIFY MPT PYTHON ENVIRONMENT"
+          echo "========================================"
+
+          echo ""
           echo "===== Python ====="
           python --version
 
+          echo ""
+          echo "===== uv ====="
+          uv --version
+
+          echo ""
+          echo "===== Python executable ====="
+          python -c "import sys; print(sys.executable)"
+
+          echo ""
+          echo "===== Installed packages ====="
+          uv pip list || python -m pip list
+
+
+      # ============================================================
+      # 12. MPT Smoke Test
+      # ============================================================
+      - name: MPT smoke test
+        if: ${{ inputs.run_mpt_smoke }}
+        run: |
+          cd mpt
+
+          echo "========================================"
+          echo "MONEYPRINTERTURBO SMOKE TEST"
+          echo "========================================"
+
+          echo ""
+          echo "===== Python ====="
+          python --version
+
+          echo ""
           echo "===== FFmpeg ====="
           which ffmpeg
           ffmpeg -version | head -n 1
 
+          echo ""
           echo "===== FFprobe ====="
           which ffprobe
           ffprobe -version | head -n 1
 
+          echo ""
           echo "===== MPT files ====="
           ls -la
 
+          echo ""
           echo "===== Python imports ====="
+
           python - <<'PY'
           import sys
-          print("Python:", sys.version)
 
+          print("Python:", sys.version)
+          print("Python executable:", sys.executable)
+
+          print("")
+          print("Testing requests...")
           import requests
           print("requests: OK")
 
+          print("")
+          print("Testing moviepy...")
           import moviepy
           print("moviepy:", moviepy.__version__)
 
+          print("")
+          print("Testing fastapi...")
           import fastapi
-          print("fastapi: OK")
+          print("fastapi:", fastapi.__version__)
 
+          print("")
+          print("Testing streamlit...")
           import streamlit
-          print("streamlit: OK")
+          print("streamlit:", streamlit.__version__)
 
-          print("================================")
+          print("")
+          print("Testing uvicorn...")
+          import uvicorn
+          print("uvicorn:", uvicorn.__version__)
+
+          print("")
+          print("Testing yaml...")
+          import yaml
+          print("PyYAML: OK")
+
+          print("")
+          print("Testing pydub...")
+          import pydub
+          print("pydub: OK")
+
+          print("")
+          print("========================================")
           print("MPT DEPENDENCY SMOKE TEST: OK")
-          print("================================")
+          print("========================================")
           PY
 
-      - name: Final resource snapshot
+
+      # ============================================================
+      # 13. Check MPT CLI
+      # ============================================================
+      - name: Check MPT CLI
+        if: ${{ inputs.run_mpt_smoke }}
         run: |
-          echo "===== FINAL CPU ====="
+          cd mpt
+
+          echo "========================================"
+          echo "MPT CLI CHECK"
+          echo "========================================"
+
+          if [ -f cli.py ]; then
+            echo "cli.py found."
+
+            python cli.py --help | head -n 80
+          else
+            echo "cli.py not found."
+          fi
+
+
+      # ============================================================
+      # 14. Check MPT API application
+      # ============================================================
+      - name: Check MPT API application
+        if: ${{ inputs.run_mpt_smoke }}
+        run: |
+          cd mpt
+
+          echo "========================================"
+          echo "MPT API CHECK"
+          echo "========================================"
+
+          if [ -f main.py ]; then
+            echo "main.py found."
+
+            python - <<'PY'
+          import ast
+
+          with open("main.py", "r", encoding="utf-8") as f:
+              source = f.read()
+
+          ast.parse(source)
+
+          print("main.py syntax: OK")
+          PY
+          else
+            echo "main.py not found."
+          fi
+
+
+      # ============================================================
+      # 15. Final resource snapshot
+      # ============================================================
+      - name: Final resource snapshot
+        if: always()
+        run: |
+          echo "========================================"
+          echo "FINAL RESOURCE SNAPSHOT"
+          echo "========================================"
+
+          echo ""
+          echo "===== CPU ====="
           nproc
 
-          echo "===== FINAL RAM ====="
+          echo ""
+          echo "===== RAM ====="
           free -h
 
-          echo "===== FINAL DISK ====="
+          echo ""
+          echo "===== DISK ====="
           df -h /
 
-          echo "================================"
-          echo "MPT WORKER POC PASSED"
-          echo "================================"
+          echo ""
+          echo "===== FFmpeg ====="
+          ffmpeg -version | head -n 1 || true
+
+          echo ""
+          echo "===== Python ====="
+          python --version || true
+
+          echo ""
+          echo "========================================"
+          echo "MPT WORKER POC FINISHED"
+          echo "========================================"
