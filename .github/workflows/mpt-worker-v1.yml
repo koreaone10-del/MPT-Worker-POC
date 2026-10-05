@@ -2,10 +2,6 @@ name: MPT Worker v1
 
 on:
 
-  # ----------------------------------------------------------
-  # MANUAL TEST
-  # ----------------------------------------------------------
-
   workflow_dispatch:
 
     inputs:
@@ -30,30 +26,16 @@ on:
         required: true
         default: "1"
 
-
-  # ----------------------------------------------------------
-  # RENDER -> GITHUB
-  # ----------------------------------------------------------
-
   repository_dispatch:
 
     types:
-
       - mpt_job
 
-
-# ============================================================
-# PERMISSIONS
-# ============================================================
 
 permissions:
 
   contents: read
 
-
-# ============================================================
-# JOB
-# ============================================================
 
 jobs:
 
@@ -64,11 +46,6 @@ jobs:
     runs-on: ubuntu-24.04
 
     timeout-minutes: 330
-
-
-    # --------------------------------------------------------
-    # ENVIRONMENT
-    # --------------------------------------------------------
 
     env:
 
@@ -90,23 +67,17 @@ jobs:
 
       MANUAL_COUNT: ${{ inputs.video_count }}
 
+      RENDER_CALLBACK_URL: https://chibani-lotfi-ai.onrender.com
+
       RENDER_CALLBACK_SECRET: ${{ secrets.RENDER_CALLBACK_SECRET }}
 
 
     steps:
 
-      # ======================================================
-      # 1. CHECKOUT WORKER REPOSITORY
-      # ======================================================
-
       - name: Checkout worker repository
 
         uses: actions/checkout@v6
 
-
-      # ======================================================
-      # 2. DETERMINE JOB PAYLOAD
-      # ======================================================
 
       - name: Determine job payload
 
@@ -119,72 +90,46 @@ jobs:
           echo "Event: ${EVENT_NAME}"
 
           if [ "$EVENT_NAME" = "repository_dispatch" ]; then
-
             JOB_ID="${DISPATCH_JOB_ID:-}"
-
             VIDEO_SUBJECT="${DISPATCH_SUBJECT:-}"
-
             ASPECT="${DISPATCH_ASPECT:-9:16}"
-
             VIDEO_COUNT="${DISPATCH_COUNT:-1}"
-
           else
-
             JOB_ID="${MANUAL_JOB_ID:-manual-test-001}"
-
             VIDEO_SUBJECT="${MANUAL_SUBJECT:-How artificial intelligence is changing everyday life}"
-
             ASPECT="${MANUAL_ASPECT:-9:16}"
-
             VIDEO_COUNT="${MANUAL_COUNT:-1}"
-
           fi
 
           if [ -z "$JOB_ID" ]; then
-
             echo "ERROR: JOB_ID is empty"
-
             exit 1
-
           fi
 
           if [ -z "$VIDEO_SUBJECT" ]; then
-
             echo "ERROR: VIDEO_SUBJECT is empty"
-
             exit 1
-
           fi
 
           echo "JOB_ID=$JOB_ID" >> "$GITHUB_ENV"
-
           echo "VIDEO_SUBJECT=$VIDEO_SUBJECT" >> "$GITHUB_ENV"
-
           echo "ASPECT=$ASPECT" >> "$GITHUB_ENV"
-
           echo "VIDEO_COUNT=$VIDEO_COUNT" >> "$GITHUB_ENV"
 
           echo ""
-
           echo "========================================"
-
           echo "MPT JOB"
-
           echo "========================================"
-
           echo "Job ID:       $JOB_ID"
-
           echo "Subject:      $VIDEO_SUBJECT"
-
           echo "Aspect:       $ASPECT"
-
           echo "Video count:  $VIDEO_COUNT"
-
+          echo "Callback URL: $RENDER_CALLBACK_URL"
           echo "========================================"
 
 
       # ======================================================
-      # 3. CALLBACK - STARTING
+      # CALLBACK - STARTING
       # ======================================================
 
       - name: Callback - Starting
@@ -196,38 +141,26 @@ jobs:
           set -e
 
           if [ -z "$RENDER_CALLBACK_SECRET" ]; then
-
             echo "WARNING: RENDER_CALLBACK_SECRET is not configured"
-
             exit 0
-
           fi
 
           curl -sS -f -X POST \
-
-            "https://chibani-lotfi-ai.onrender.com/api/worker/jobs/${JOB_ID}/callback" \
-
+            "${RENDER_CALLBACK_URL}/api/worker/jobs/${JOB_ID}/callback" \
             -H "Content-Type: application/json" \
-
             -H "X-Callback-Secret: ${RENDER_CALLBACK_SECRET}" \
-
             -d '{
-
               "status": "processing",
-
               "progress": 5,
-
               "stage": "starting"
-
             }'
 
           echo ""
-
           echo "Callback: 5% starting"
 
 
       # ======================================================
-      # 4. SYSTEM INFORMATION
+      # SYSTEM INFORMATION
       # ======================================================
 
       - name: System information
@@ -237,38 +170,29 @@ jobs:
         run: |
 
           echo "========================================"
-
           echo "SYSTEM INFORMATION"
-
           echo "========================================"
 
           echo "CPU:"
-
           nproc || true
 
           echo ""
-
           echo "MEMORY:"
-
           free -h || true
 
           echo ""
-
           echo "DISK:"
-
           df -h || true
 
           echo ""
-
           echo "Python:"
-
           python3 --version || true
 
           echo "========================================"
 
 
       # ======================================================
-      # 5. INSTALL SYSTEM PACKAGES
+      # INSTALL SYSTEM PACKAGES
       # ======================================================
 
       - name: Install system packages
@@ -282,26 +206,18 @@ jobs:
           sudo apt-get update
 
           sudo apt-get install -y \
-
             ffmpeg \
-
             python3 \
-
             python3-pip \
-
             python3-venv \
-
             ca-certificates \
-
             curl \
-
             unzip \
-
             git
 
 
       # ======================================================
-      # 6. VERIFY FFMPEG
+      # VERIFY FFMPEG
       # ======================================================
 
       - name: Verify FFmpeg
@@ -318,7 +234,7 @@ jobs:
 
 
       # ======================================================
-      # 7. SETUP PYTHON
+      # SETUP PYTHON
       # ======================================================
 
       - name: Setup Python
@@ -331,7 +247,7 @@ jobs:
 
 
       # ======================================================
-      # 8. INSTALL UV
+      # INSTALL UV
       # ======================================================
 
       - name: Install uv
@@ -352,7 +268,7 @@ jobs:
 
 
       # ======================================================
-      # 9. CLONE MONEYPRINTERTURBO
+      # CLONE MONEYPRINTERTURBO
       # ======================================================
 
       - name: Clone MoneyPrinterTurbo
@@ -366,40 +282,30 @@ jobs:
           rm -rf MoneyPrinterTurbo
 
           git clone \
-
             --depth 1 \
-
             https://github.com/harry0703/MoneyPrinterTurbo.git \
-
             MoneyPrinterTurbo
 
           cd MoneyPrinterTurbo
 
           echo ""
-
           echo "MPT commit:"
-
           git rev-parse HEAD
 
           echo ""
-
           echo "MPT files:"
-
           ls -la
 
           echo ""
 
           test -f pyproject.toml
-
           test -f uv.lock
-
           test -f cli.py
-
           test -f requirements.txt
 
 
       # ======================================================
-      # 10. INSTALL MPT DEPENDENCIES
+      # INSTALL MPT DEPENDENCIES
       # ======================================================
 
       - name: Install MPT dependencies
@@ -416,7 +322,7 @@ jobs:
 
 
       # ======================================================
-      # 11. VERIFY MPT ENVIRONMENT
+      # VERIFY MPT ENVIRONMENT
       # ======================================================
 
       - name: Verify MPT environment
@@ -436,12 +342,11 @@ jobs:
           uv run python -c "import requests; print('requests:', requests.__version__)"
 
           echo ""
-
           echo "MPT environment ready"
 
 
       # ======================================================
-      # 12. CALLBACK - PREPARING
+      # CALLBACK - PREPARING
       # ======================================================
 
       - name: Callback - Preparing
@@ -453,38 +358,26 @@ jobs:
           set -e
 
           if [ -z "$RENDER_CALLBACK_SECRET" ]; then
-
             echo "WARNING: RENDER_CALLBACK_SECRET is not configured"
-
             exit 0
-
           fi
 
           curl -sS -f -X POST \
-
-            "https://chibani-lotfi-ai.onrender.com/api/worker/jobs/${JOB_ID}/callback" \
-
+            "${RENDER_CALLBACK_URL}/api/worker/jobs/${JOB_ID}/callback" \
             -H "Content-Type: application/json" \
-
             -H "X-Callback-Secret: ${RENDER_CALLBACK_SECRET}" \
-
             -d '{
-
               "status": "processing",
-
               "progress": 15,
-
               "stage": "preparing"
-
             }'
 
           echo ""
-
           echo "Callback: 15% preparing"
 
 
       # ======================================================
-      # 13. CHECK TEST ASSET
+      # CHECK TEST ASSET
       # ======================================================
 
       - name: Check test asset
@@ -502,7 +395,6 @@ jobs:
             echo "ERROR: test_assets/test_source.mp4 not found"
 
             echo ""
-
             echo "Available test assets:"
 
             find test_assets -maxdepth 2 -type f 2>/dev/null || true
@@ -517,7 +409,7 @@ jobs:
 
 
       # ======================================================
-      # 14. CALLBACK - GENERATING
+      # CALLBACK - GENERATING
       # ======================================================
 
       - name: Callback - Generating
@@ -529,38 +421,26 @@ jobs:
           set -e
 
           if [ -z "$RENDER_CALLBACK_SECRET" ]; then
-
             echo "WARNING: RENDER_CALLBACK_SECRET is not configured"
-
             exit 0
-
           fi
 
           curl -sS -f -X POST \
-
-            "https://chibani-lotfi-ai.onrender.com/api/worker/jobs/${JOB_ID}/callback" \
-
+            "${RENDER_CALLBACK_URL}/api/worker/jobs/${JOB_ID}/callback" \
             -H "Content-Type: application/json" \
-
             -H "X-Callback-Secret: ${RENDER_CALLBACK_SECRET}" \
-
             -d '{
-
               "status": "processing",
-
               "progress": 30,
-
               "stage": "generating"
-
             }'
 
           echo ""
-
           echo "Callback: 30% generating"
 
 
       # ======================================================
-      # 15. RUN MONEYPRINTERTURBO
+      # RUN MONEYPRINTERTURBO
       # ======================================================
 
       - name: Run MoneyPrinterTurbo
@@ -574,44 +454,30 @@ jobs:
           set -e
 
           echo "========================================"
-
           echo "STARTING MONEYPRINTERTURBO"
-
           echo "========================================"
 
           echo "Job ID: $JOB_ID"
-
           echo "Subject: $VIDEO_SUBJECT"
-
           echo "Aspect: $ASPECT"
-
           echo "Count: $VIDEO_COUNT"
 
           echo "========================================"
-
           echo ""
 
           uv run python cli.py \
-
             --video-script "$VIDEO_SUBJECT" \
-
             --video-source local \
-
             --video-materials "./test_assets/test_source.mp4" \
-
             --video-aspect "$ASPECT" \
-
             --video-count "$VIDEO_COUNT" \
-
             --voice-name no-voice \
-
             --no-subtitle-enabled \
-
             --stop-at video
 
 
       # ======================================================
-      # 16. FIND OUTPUT VIDEO
+      # FIND OUTPUT VIDEO
       # ======================================================
 
       - name: Find generated videos
@@ -631,11 +497,8 @@ jobs:
           FINAL_VIDEO="$(find storage/tasks -type f -name 'final-*.mp4' | head -n 1)"
 
           if [ -z "$FINAL_VIDEO" ]; then
-
             echo "ERROR: No final MP4 found"
-
             exit 1
-
           fi
 
           echo "FINAL_VIDEO=$FINAL_VIDEO" >> "$GITHUB_ENV"
@@ -646,7 +509,7 @@ jobs:
 
 
       # ======================================================
-      # 17. CALLBACK - PROCESSING
+      # CALLBACK - PROCESSING
       # ======================================================
 
       - name: Callback - Processing
@@ -658,38 +521,26 @@ jobs:
           set -e
 
           if [ -z "$RENDER_CALLBACK_SECRET" ]; then
-
             echo "WARNING: RENDER_CALLBACK_SECRET is not configured"
-
             exit 0
-
           fi
 
           curl -sS -f -X POST \
-
-            "https://chibani-lotfi-ai.onrender.com/api/worker/jobs/${JOB_ID}/callback" \
-
+            "${RENDER_CALLBACK_URL}/api/worker/jobs/${JOB_ID}/callback" \
             -H "Content-Type: application/json" \
-
             -H "X-Callback-Secret: ${RENDER_CALLBACK_SECRET}" \
-
             -d '{
-
               "status": "processing",
-
               "progress": 70,
-
               "stage": "processing"
-
             }'
 
           echo ""
-
           echo "Callback: 70% processing"
 
 
       # ======================================================
-      # 18. VERIFY MP4
+      # VERIFY MP4
       # ======================================================
 
       - name: Verify generated MP4
@@ -703,138 +554,89 @@ jobs:
           set -e
 
           echo "========================================"
-
           echo "MP4 VERIFICATION"
-
           echo "========================================"
 
           echo "File: $FINAL_VIDEO"
-
           echo ""
 
           CODEC="$(ffprobe \
-
             -v error \
-
             -select_streams v:0 \
-
             -show_entries stream=codec_name \
-
             -of default=noprint_wrappers=1:nokey=1 \
-
             "$FINAL_VIDEO")"
 
           WIDTH="$(ffprobe \
-
             -v error \
-
             -select_streams v:0 \
-
             -show_entries stream=width \
-
             -of default=noprint_wrappers=1:nokey=1 \
-
             "$FINAL_VIDEO")"
 
           HEIGHT="$(ffprobe \
-
             -v error \
-
             -select_streams v:0 \
-
             -show_entries stream=height \
-
             -of default=noprint_wrappers=1:nokey=1 \
-
             "$FINAL_VIDEO")"
 
           FPS="$(ffprobe \
-
             -v error \
-
             -select_streams v:0 \
-
             -show_entries stream=r_frame_rate \
-
             -of default=noprint_wrappers=1:nokey=1 \
-
             "$FINAL_VIDEO")"
 
           DURATION="$(ffprobe \
-
             -v error \
-
             -show_entries format=duration \
-
             -of default=noprint_wrappers=1:nokey=1 \
-
             "$FINAL_VIDEO")"
 
           SIZE="$(stat -c%s "$FINAL_VIDEO")"
 
           AUDIO_CODEC="$(ffprobe \
-
             -v error \
-
             -select_streams a:0 \
-
             -show_entries stream=codec_name \
-
             -of default=noprint_wrappers=1:nokey=1 \
-
             "$FINAL_VIDEO" || true)"
 
           echo "Codec:        $CODEC"
-
           echo "Width:        $WIDTH"
-
           echo "Height:       $HEIGHT"
-
           echo "FPS:          $FPS"
-
           echo "Audio codec:  $AUDIO_CODEC"
-
           echo "Duration:     $DURATION"
-
           echo "Size:         $SIZE bytes"
 
           echo ""
 
           if [ "$CODEC" != "h264" ]; then
-
             echo "ERROR: Expected H.264 video"
-
             exit 1
-
           fi
 
           if [ "$WIDTH" != "1080" ]; then
-
             echo "WARNING: Width is $WIDTH"
-
           fi
 
           if [ "$HEIGHT" != "1920" ]; then
-
             echo "WARNING: Height is $HEIGHT"
-
           fi
 
           if [ "$SIZE" -le 0 ]; then
-
             echo "ERROR: Video file is empty"
-
             exit 1
-
           fi
 
           echo ""
-
           echo "MP4 verification: SUCCESS"
 
 
       # ======================================================
-      # 19. CALLBACK - FINALIZING
+      # CALLBACK - FINALIZING
       # ======================================================
 
       - name: Callback - Finalizing
@@ -846,38 +648,26 @@ jobs:
           set -e
 
           if [ -z "$RENDER_CALLBACK_SECRET" ]; then
-
             echo "WARNING: RENDER_CALLBACK_SECRET is not configured"
-
             exit 0
-
           fi
 
           curl -sS -f -X POST \
-
-            "https://chibani-lotfi-ai.onrender.com/api/worker/jobs/${JOB_ID}/callback" \
-
+            "${RENDER_CALLBACK_URL}/api/worker/jobs/${JOB_ID}/callback" \
             -H "Content-Type: application/json" \
-
             -H "X-Callback-Secret: ${RENDER_CALLBACK_SECRET}" \
-
             -d '{
-
               "status": "processing",
-
               "progress": 90,
-
               "stage": "finalizing"
-
             }'
 
           echo ""
-
           echo "Callback: 90% finalizing"
 
 
       # ======================================================
-      # 20. UPLOAD WORKER ARTIFACT
+      # UPLOAD WORKER ARTIFACT
       # ======================================================
 
       - name: Upload worker artifact
@@ -889,9 +679,7 @@ jobs:
           name: mpt-worker-${{ github.run_id }}
 
           path: |
-
             MoneyPrinterTurbo/storage/tasks/**
-
             MoneyPrinterTurbo/*.log
 
           if-no-files-found: warn
@@ -900,7 +688,7 @@ jobs:
 
 
       # ======================================================
-      # 21. UPLOAD TASK ARTIFACT
+      # UPLOAD TASK ARTIFACT
       # ======================================================
 
       - name: Upload task artifact
@@ -912,7 +700,6 @@ jobs:
           name: mpt-task-${{ github.run_id }}
 
           path: |
-
             MoneyPrinterTurbo/storage/tasks/**/final-*.mp4
 
           if-no-files-found: error
@@ -921,7 +708,7 @@ jobs:
 
 
       # ======================================================
-      # 22. CALLBACK - COMPLETED
+      # CALLBACK - COMPLETED
       # ======================================================
 
       - name: Callback - Completed
@@ -935,56 +722,38 @@ jobs:
           set -e
 
           if [ -z "$RENDER_CALLBACK_SECRET" ]; then
-
             echo "ERROR: RENDER_CALLBACK_SECRET is not configured"
-
             exit 1
-
           fi
 
           curl -sS -f -X POST \
-
-            "https://chibani-lotfi-ai.onrender.com/api/worker/jobs/${JOB_ID}/callback" \
-
+            "${RENDER_CALLBACK_URL}/api/worker/jobs/${JOB_ID}/callback" \
             -H "Content-Type: application/json" \
-
             -H "X-Callback-Secret: ${RENDER_CALLBACK_SECRET}" \
-
             -d '{
-
               "status": "completed",
-
               "progress": 100,
-
               "stage": "completed"
-
             }'
 
           echo ""
 
           echo "========================================"
-
           echo "MPT WORKER v1 — SUCCESS"
-
           echo "========================================"
 
           echo "Job ID:    $JOB_ID"
-
           echo "Subject:   $VIDEO_SUBJECT"
-
           echo "Aspect:    $ASPECT"
-
           echo "Count:     $VIDEO_COUNT"
-
           echo "Video:     $FINAL_VIDEO"
-
           echo "Status:    COMPLETED"
 
           echo "========================================"
 
 
       # ======================================================
-      # 23. CALLBACK - FAILED
+      # CALLBACK - FAILED
       # ======================================================
 
       - name: Callback - Failed
@@ -998,35 +767,21 @@ jobs:
           set +e
 
           if [ -z "$RENDER_CALLBACK_SECRET" ]; then
-
             echo "RENDER_CALLBACK_SECRET is not configured"
-
             exit 0
-
           fi
 
           curl -sS -X POST \
-
-            "https://chibani-lotfi-ai.onrender.com/api/worker/jobs/${JOB_ID}/callback" \
-
+            "${RENDER_CALLBACK_URL}/api/worker/jobs/${JOB_ID}/callback" \
             -H "Content-Type: application/json" \
-
             -H "X-Callback-Secret: ${RENDER_CALLBACK_SECRET}" \
-
             -d '{
-
               "status": "failed",
-
               "progress": 100,
-
               "stage": "failed",
-
               "error": "GitHub MPT Worker failed"
-
             }'
 
           echo ""
-
           echo "Callback: FAILED"
-
           echo "Job ID: $JOB_ID"
