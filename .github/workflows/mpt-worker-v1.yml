@@ -1,630 +1,358 @@
 name: MPT Worker v1
 
 on:
-
   workflow_dispatch:
-
     inputs:
-
       job_id:
-        description: "Job ID"
+        description: "Render Job ID"
         required: true
-        default: "manual-test-001"
+        type: string
 
       video_subject:
         description: "Video subject"
         required: true
-        default: "How artificial intelligence is changing everyday life"
+        type: string
 
       aspect:
         description: "Video aspect ratio"
         required: true
         default: "9:16"
+        type: string
 
       video_count:
         description: "Number of videos"
         required: true
         default: "1"
+        type: string
 
   repository_dispatch:
-
     types:
       - mpt_job
 
-
 permissions:
-
   contents: read
 
+env:
+  RENDER_CALLBACK_URL: https://chibani-lotfi-ai.onrender.com
+  RENDER_CALLBACK_SECRET: ${{ secrets.RENDER_CALLBACK_SECRET }}
 
 jobs:
-
-  process:
-
-    name: Process MPT Job
-
-    runs-on: ubuntu-24.04
-
-    timeout-minutes: 330
-
-
-    env:
-
-      EVENT_NAME: ${{ github.event_name }}
-
-      DISPATCH_JOB_ID: ${{ github.event.client_payload.job_id }}
-
-      DISPATCH_SUBJECT: ${{ github.event.client_payload.video_subject }}
-
-      DISPATCH_ASPECT: ${{ github.event.client_payload.aspect }}
-
-      DISPATCH_COUNT: ${{ github.event.client_payload.video_count }}
-
-
-      MANUAL_JOB_ID: ${{ inputs.job_id }}
-
-      MANUAL_SUBJECT: ${{ inputs.video_subject }}
-
-      MANUAL_ASPECT: ${{ inputs.aspect }}
-
-      MANUAL_COUNT: ${{ inputs.video_count }}
-
-
-      RENDER_CALLBACK_URL: https://chibani-lotfi-ai.onrender.com
-
-      RENDER_CALLBACK_SECRET: ${{ secrets.RENDER_CALLBACK_SECRET }}
-
+  mpt:
+    name: MPT Pixabay Worker
+    runs-on: ubuntu-latest
 
     steps:
 
+      # ============================================================
+      # 1. Read job information
+      # ============================================================
 
-      # ======================================================
-      # CHECKOUT
-      # ======================================================
-
-      - name: Checkout worker repository
-
-        uses: actions/checkout@v6
-
-
-      # ======================================================
-      # DETERMINE JOB PAYLOAD
-      # ======================================================
-
-      - name: Determine job payload
-
+      - name: Prepare job variables
         shell: bash
+        env:
+          DISPATCH_JOB_ID: ${{ github.event.client_payload.job_id }}
+          DISPATCH_SUBJECT: ${{ github.event.client_payload.video_subject }}
+          DISPATCH_ASPECT: ${{ github.event.client_payload.aspect }}
+          DISPATCH_COUNT: ${{ github.event.client_payload.video_count }}
+
+          MANUAL_JOB_ID: ${{ inputs.job_id }}
+          MANUAL_SUBJECT: ${{ inputs.video_subject }}
+          MANUAL_ASPECT: ${{ inputs.aspect }}
+          MANUAL_COUNT: ${{ inputs.video_count }}
 
         run: |
-
           set -e
 
-          echo "Event: ${EVENT_NAME}"
-
-
-          if [ "$EVENT_NAME" = "repository_dispatch" ]; then
-
-            JOB_ID="${DISPATCH_JOB_ID:-}"
-
-            VIDEO_SUBJECT="${DISPATCH_SUBJECT:-}"
-
-            ASPECT="${DISPATCH_ASPECT:-9:16}"
-
-            VIDEO_COUNT="${DISPATCH_COUNT:-1}"
-
-          else
-
-            JOB_ID="${MANUAL_JOB_ID:-manual-test-001}"
-
-            VIDEO_SUBJECT="${MANUAL_SUBJECT:-How artificial intelligence is changing everyday life}"
-
-            ASPECT="${MANUAL_ASPECT:-9:16}"
-
-            VIDEO_COUNT="${MANUAL_COUNT:-1}"
-
-          fi
-
+          JOB_ID="${DISPATCH_JOB_ID:-$MANUAL_JOB_ID}"
+          VIDEO_SUBJECT="${DISPATCH_SUBJECT:-$MANUAL_SUBJECT}"
+          ASPECT="${DISPATCH_ASPECT:-$MANUAL_ASPECT}"
+          VIDEO_COUNT="${DISPATCH_COUNT:-$MANUAL_COUNT}"
 
           if [ -z "$JOB_ID" ]; then
-
             echo "ERROR: JOB_ID is empty"
-
             exit 1
-
           fi
-
 
           if [ -z "$VIDEO_SUBJECT" ]; then
-
             echo "ERROR: VIDEO_SUBJECT is empty"
-
             exit 1
-
           fi
 
+          if [ -z "$ASPECT" ]; then
+            ASPECT="9:16"
+          fi
+
+          if [ -z "$VIDEO_COUNT" ]; then
+            VIDEO_COUNT="1"
+          fi
 
           echo "JOB_ID=$JOB_ID" >> "$GITHUB_ENV"
-
           echo "VIDEO_SUBJECT=$VIDEO_SUBJECT" >> "$GITHUB_ENV"
-
           echo "ASPECT=$ASPECT" >> "$GITHUB_ENV"
-
           echo "VIDEO_COUNT=$VIDEO_COUNT" >> "$GITHUB_ENV"
 
-
-          echo ""
-
-          echo "========================================"
-
-          echo "MPT JOB"
-
-          echo "========================================"
-
-          echo "Job ID:       $JOB_ID"
-
-          echo "Subject:      $VIDEO_SUBJECT"
-
-          echo "Aspect:       $ASPECT"
-
-          echo "Video count:  $VIDEO_COUNT"
-
-          echo "Callback URL: $RENDER_CALLBACK_URL"
-
-          echo "========================================"
+          echo "=========================================="
+          echo "MPT PIXABAY WORKER"
+          echo "=========================================="
+          echo "JOB_ID       : $JOB_ID"
+          echo "SUBJECT      : $VIDEO_SUBJECT"
+          echo "ASPECT       : $ASPECT"
+          echo "VIDEO COUNT  : $VIDEO_COUNT"
+          echo "=========================================="
 
 
-      # ======================================================
-      # CALLBACK - STARTING
-      # ======================================================
+      # ============================================================
+      # 2. Callback: starting
+      # ============================================================
 
       - name: Callback - Starting
-
         shell: bash
-
         run: |
-
           set -e
 
-
-          if [ -z "$RENDER_CALLBACK_SECRET" ]; then
-
-            echo "WARNING: RENDER_CALLBACK_SECRET is not configured"
-
-            exit 0
-
-          fi
-
-
-          curl -sS -f -X POST \
+          curl -sS -f \
+            -X POST \
             "${RENDER_CALLBACK_URL}/api/worker/jobs/${JOB_ID}/callback" \
             -H "Content-Type: application/json" \
             -H "X-Callback-Secret: ${RENDER_CALLBACK_SECRET}" \
-            -d '{
-              "status": "processing",
+            --data '{
+              "status": "running",
               "progress": 5,
               "stage": "starting"
             }'
 
 
-          echo ""
+      # ============================================================
+      # 3. Checkout worker repository
+      # ============================================================
 
-          echo "Callback: 5% starting"
+      - name: Checkout worker repository
+        uses: actions/checkout@v4
 
 
-      # ======================================================
-      # SYSTEM INFORMATION
-      # ======================================================
+      # ============================================================
+      # 4. Callback: preparing
+      # ============================================================
 
-      - name: System information
-
+      - name: Callback - Preparing
         shell: bash
-
         run: |
-
-          echo "========================================"
-
-          echo "SYSTEM INFORMATION"
-
-          echo "========================================"
-
-
-          echo "CPU:"
-
-          nproc || true
-
-
-          echo ""
-
-          echo "MEMORY:"
-
-          free -h || true
-
-
-          echo ""
-
-          echo "DISK:"
-
-          df -h || true
-
-
-          echo ""
-
-          echo "Python:"
-
-          python3 --version || true
-
-
-          echo "========================================"
-
-
-      # ======================================================
-      # INSTALL SYSTEM PACKAGES
-      # ======================================================
-
-      - name: Install system packages
-
-        shell: bash
-
-        run: |
-
           set -e
 
+          curl -sS -f \
+            -X POST \
+            "${RENDER_CALLBACK_URL}/api/worker/jobs/${JOB_ID}/callback" \
+            -H "Content-Type: application/json" \
+            -H "X-Callback-Secret: ${RENDER_CALLBACK_SECRET}" \
+            --data '{
+              "status": "running",
+              "progress": 10,
+              "stage": "preparing"
+            }'
+
+
+      # ============================================================
+      # 5. Install system dependencies
+      # ============================================================
+
+      - name: Install system dependencies
+        shell: bash
+        run: |
+          set -e
 
           sudo apt-get update
-
 
           sudo apt-get install -y \
             ffmpeg \
             python3 \
             python3-pip \
-            python3-venv \
-            ca-certificates \
             curl \
-            unzip \
-            git
-
-
-      # ======================================================
-      # VERIFY FFMPEG
-      # ======================================================
-
-      - name: Verify FFmpeg
-
-        shell: bash
-
-        run: |
-
-          set -e
-
+            ca-certificates
 
           ffmpeg -version | head -n 1
-
-          ffprobe -version | head -n 1
-
-
-      # ======================================================
-      # SETUP PYTHON
-      # ======================================================
-
-      - name: Setup Python
-
-        uses: actions/setup-python@v6
-
-        with:
-
-          python-version: "3.11"
+          python3 --version
+          curl --version | head -n 1
 
 
-      # ======================================================
-      # INSTALL UV
-      # ======================================================
-
-      - name: Install uv
-
-        shell: bash
-
-        run: |
-
-          set -e
-
-
-          python3 -m pip install --user uv
-
-
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-
-
-          export PATH="$HOME/.local/bin:$PATH"
-
-
-          uv --version
-
-
-      # ======================================================
-      # CLONE MONEYPRINTERTURBO
-      # ======================================================
+      # ============================================================
+      # 6. Clone MoneyPrinterTurbo
+      # ============================================================
 
       - name: Clone MoneyPrinterTurbo
-
         shell: bash
-
         run: |
-
           set -e
 
-
           rm -rf MoneyPrinterTurbo
-
 
           git clone \
             --depth 1 \
             https://github.com/harry0703/MoneyPrinterTurbo.git \
             MoneyPrinterTurbo
 
-
           cd MoneyPrinterTurbo
 
-
-          echo ""
-
           echo "MPT commit:"
-
           git rev-parse HEAD
 
 
-          echo ""
+      # ============================================================
+      # 7. Install uv
+      # ============================================================
 
-          echo "MPT files:"
-
-          ls -la
-
-
-          echo ""
-
-
-          test -f pyproject.toml
-
-          test -f uv.lock
-
-          test -f cli.py
-
-          test -f requirements.txt
-
-
-      # ======================================================
-      # INSTALL MPT DEPENDENCIES
-      # ======================================================
-
-      - name: Install MPT dependencies
-
+      - name: Install uv
         shell: bash
-
-        working-directory: MoneyPrinterTurbo
-
         run: |
-
           set -e
 
+          curl -LsSf https://astral.sh/uv/install.sh | sh
 
-          uv sync --frozen
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
-
-      # ======================================================
-      # VERIFY MPT ENVIRONMENT
-      # ======================================================
-
-      - name: Verify MPT environment
-
-        shell: bash
-
-        working-directory: MoneyPrinterTurbo
-
-        run: |
-
-          set -e
-
+          export PATH="$HOME/.local/bin:$PATH"
 
           uv --version
 
 
-          uv run python --version
+      # ============================================================
+      # 8. Install MPT dependencies
+      # ============================================================
 
-
-          uv run python -c "import requests; print('requests:', requests.__version__)"
-
-
-          echo ""
-
-          echo "MPT environment ready"
-
-
-      # ======================================================
-      # CALLBACK - PREPARING
-      # ======================================================
-
-      - name: Callback - Preparing
-
-        shell: bash
-
-        run: |
-
-          set -e
-
-
-          if [ -z "$RENDER_CALLBACK_SECRET" ]; then
-
-            echo "WARNING: RENDER_CALLBACK_SECRET is not configured"
-
-            exit 0
-
-          fi
-
-
-          curl -sS -f -X POST \
-            "${RENDER_CALLBACK_URL}/api/worker/jobs/${JOB_ID}/callback" \
-            -H "Content-Type: application/json" \
-            -H "X-Callback-Secret: ${RENDER_CALLBACK_SECRET}" \
-            -d '{
-              "status": "processing",
-              "progress": 15,
-              "stage": "preparing"
-            }'
-
-
-          echo ""
-
-          echo "Callback: 15% preparing"
-
-
-      # ======================================================
-      # PREPARE TEST ASSET
-      # ======================================================
-
-      - name: Prepare test asset
-
-        shell: bash
-
+      - name: Install MPT dependencies
         working-directory: MoneyPrinterTurbo
-
-        run: |
-
-          set -e
-
-
-          echo "========================================"
-
-          echo "PREPARING TEST VIDEO"
-
-          echo "========================================"
-
-
-          mkdir -p test_assets
-
-
-          rm -f ./test_assets/test_source.mp4
-
-
-          echo "Generating synthetic 1080x1920 MP4..."
-
-
-          ffmpeg \
-            -hide_banner \
-            -loglevel error \
-            -f lavfi \
-            -i "testsrc2=size=1080x1920:rate=30" \
-            -t 4 \
-            -an \
-            -c:v libx264 \
-            -preset ultrafast \
-            -pix_fmt yuv420p \
-            -movflags +faststart \
-            "./test_assets/test_source.mp4"
-
-
-          echo ""
-
-          echo "Test asset created:"
-
-
-          ls -lh ./test_assets/test_source.mp4
-
-
-          echo ""
-
-          echo "Checking generated test asset..."
-
-
-          ffprobe \
-            -v error \
-            -select_streams v:0 \
-            -show_entries stream=codec_name,width,height \
-            -of default=noprint_wrappers=1 \
-            ./test_assets/test_source.mp4
-
-
-          echo ""
-
-          echo "Test asset: READY"
-
-
-      # ======================================================
-      # CALLBACK - GENERATING
-      # ======================================================
-
-      - name: Callback - Generating
-
         shell: bash
-
         run: |
-
           set -e
 
+          uv sync --frozen
 
-          if [ -z "$RENDER_CALLBACK_SECRET" ]; then
 
-            echo "WARNING: RENDER_CALLBACK_SECRET is not configured"
+      # ============================================================
+      # 9. Verify Pixabay secret
+      # ============================================================
 
-            exit 0
+      - name: Verify Pixabay configuration
+        shell: bash
+        env:
+          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+        run: |
+          set -e
 
+          if [ -z "$PIXABAY_API_KEY" ]; then
+            echo "ERROR: PIXABAY_API_KEY GitHub Secret is missing."
+            exit 1
           fi
 
+          echo "Pixabay API key detected."
+          echo "Key length: ${#PIXABAY_API_KEY}"
 
-          curl -sS -f -X POST \
+
+      # ============================================================
+      # 10. Create MPT config.toml
+      # ============================================================
+
+      - name: Create MPT config
+        working-directory: MoneyPrinterTurbo
+        shell: bash
+        env:
+          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+        run: |
+          set -e
+
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          key = os.environ["PIXABAY_API_KEY"].strip()
+
+          source = Path("config.example.toml")
+          target = Path("config.toml")
+
+          text = source.read_text(encoding="utf-8")
+
+          text = text.replace(
+              'video_source = "pexels"',
+              'video_source = "pixabay"',
+              1
+          )
+
+          text = text.replace(
+              "pexels_api_keys = []",
+              "pexels_api_keys = []",
+              1
+          )
+
+          text = text.replace(
+              "pixabay_api_keys = []",
+              f'pixabay_api_keys = ["{key}"]',
+              1
+          )
+
+          target.write_text(text, encoding="utf-8")
+
+          print("config.toml created.")
+          print("video_source = pixabay")
+          print("pixabay_api_keys configured.")
+          PY
+
+          echo "Checking configuration..."
+
+          grep -n '^video_source' config.toml
+          grep -n '^pixabay_api_keys' config.toml | sed 's/=.*/= [HIDDEN]/'
+
+
+      # ============================================================
+      # 11. Callback: Pixabay material stage
+      # ============================================================
+
+      - name: Callback - Pixabay materials
+        shell: bash
+        run: |
+          set -e
+
+          curl -sS -f \
+            -X POST \
             "${RENDER_CALLBACK_URL}/api/worker/jobs/${JOB_ID}/callback" \
             -H "Content-Type: application/json" \
             -H "X-Callback-Secret: ${RENDER_CALLBACK_SECRET}" \
-            -d '{
-              "status": "processing",
-              "progress": 30,
-              "stage": "generating"
+            --data '{
+              "status": "running",
+              "progress": 25,
+              "stage": "pixabay_materials"
             }'
 
 
-          echo ""
-
-          echo "Callback: 30% generating"
-
-
-      # ======================================================
-      # RUN MONEYPRINTERTURBO
-      # ======================================================
+      # ============================================================
+      # 12. Run MoneyPrinterTurbo with Pixabay
+      # ============================================================
 
       - name: Run MoneyPrinterTurbo
-
-        shell: bash
-
         working-directory: MoneyPrinterTurbo
-
+        shell: bash
         run: |
-
           set -e
 
-
-          echo "========================================"
-
+          echo "=========================================="
           echo "STARTING MONEYPRINTERTURBO"
+          echo "=========================================="
 
-          echo "========================================"
+          echo "Subject:"
+          echo "$VIDEO_SUBJECT"
 
+          echo "Source:"
+          echo "pixabay"
 
-          echo "Job ID: $JOB_ID"
+          echo "Aspect:"
+          echo "$ASPECT"
 
-          echo "Subject: $VIDEO_SUBJECT"
+          echo "Count:"
+          echo "$VIDEO_COUNT"
 
-          echo "Aspect: $ASPECT"
-
-          echo "Count: $VIDEO_COUNT"
-
-
-          echo "========================================"
-
-          echo ""
-
+          echo "=========================================="
 
           uv run python cli.py \
             --video-script "$VIDEO_SUBJECT" \
-            --video-source local \
-            --video-materials "./test_assets/test_source.mp4" \
+            --video-source pixabay \
             --video-aspect "$ASPECT" \
             --video-count "$VIDEO_COUNT" \
             --voice-name no-voice \
@@ -632,256 +360,76 @@ jobs:
             --stop-at video
 
 
-      # ======================================================
-      # FIND OUTPUT VIDEO
-      # ======================================================
+      # ============================================================
+      # 13. Locate generated video
+      # ============================================================
 
-      - name: Find generated videos
-
-        shell: bash
-
+      - name: Find generated video
         working-directory: MoneyPrinterTurbo
-
+        shell: bash
         run: |
-
           set -e
 
-
-          echo "Searching for generated MP4 files..."
-
+          echo "Searching for generated MP4..."
 
           find storage/tasks \
             -type f \
             -name "final-*.mp4" \
-            -print || true
-
+            -print
 
           FINAL_VIDEO="$(find storage/tasks \
             -type f \
-            -name 'final-*.mp4' \
+            -name "final-*.mp4" \
             | head -n 1)"
 
-
           if [ -z "$FINAL_VIDEO" ]; then
-
-            echo "ERROR: No final MP4 found"
-
+            echo "ERROR: No final MP4 was generated."
+            echo ""
+            echo "Last task directories:"
+            find storage/tasks -maxdepth 3 -type f | tail -n 100
             exit 1
-
           fi
-
 
           echo "FINAL_VIDEO=$FINAL_VIDEO" >> "$GITHUB_ENV"
 
+          echo "=========================================="
+          echo "VIDEO FOUND"
+          echo "$FINAL_VIDEO"
+          echo "=========================================="
 
-          echo "Generated video:"
 
-          ls -lh "$FINAL_VIDEO"
-
-
-      # ======================================================
-      # CALLBACK - PROCESSING
-      # ======================================================
+      # ============================================================
+      # 14. Callback: processing
+      # ============================================================
 
       - name: Callback - Processing
-
         shell: bash
-
         run: |
-
           set -e
 
-
-          if [ -z "$RENDER_CALLBACK_SECRET" ]; then
-
-            echo "WARNING: RENDER_CALLBACK_SECRET is not configured"
-
-            exit 0
-
-          fi
-
-
-          curl -sS -f -X POST \
+          curl -sS -f \
+            -X POST \
             "${RENDER_CALLBACK_URL}/api/worker/jobs/${JOB_ID}/callback" \
             -H "Content-Type: application/json" \
             -H "X-Callback-Secret: ${RENDER_CALLBACK_SECRET}" \
-            -d '{
-              "status": "processing",
-              "progress": 70,
+            --data '{
+              "status": "running",
+              "progress": 80,
               "stage": "processing"
             }'
 
 
-          echo ""
-
-          echo "Callback: 70% processing"
-
-
-      # ======================================================
-      # VERIFY MP4
-      # ======================================================
-
-      - name: Verify generated MP4
-
-        shell: bash
-
-        working-directory: MoneyPrinterTurbo
-
-        run: |
-
-          set -e
-
-
-          echo "========================================"
-
-          echo "MP4 VERIFICATION"
-
-          echo "========================================"
-
-
-          echo "File: $FINAL_VIDEO"
-
-          echo ""
-
-
-          CODEC="$(ffprobe \
-            -v error \
-            -select_streams v:0 \
-            -show_entries stream=codec_name \
-            -of default=noprint_wrappers=1:nokey=1 \
-            "$FINAL_VIDEO")"
-
-
-          WIDTH="$(ffprobe \
-            -v error \
-            -select_streams v:0 \
-            -show_entries stream=width \
-            -of default=noprint_wrappers=1:nokey=1 \
-            "$FINAL_VIDEO")"
-
-
-          HEIGHT="$(ffprobe \
-            -v error \
-            -select_streams v:0 \
-            -show_entries stream=height \
-            -of default=noprint_wrappers=1:nokey=1 \
-            "$FINAL_VIDEO")"
-
-
-          FPS="$(ffprobe \
-            -v error \
-            -select_streams v:0 \
-            -show_entries stream=r_frame_rate \
-            -of default=noprint_wrappers=1:nokey=1 \
-            "$FINAL_VIDEO")"
-
-
-          DURATION="$(ffprobe \
-            -v error \
-            -show_entries format=duration \
-            -of default=noprint_wrappers=1:nokey=1 \
-            "$FINAL_VIDEO")"
-
-
-          SIZE="$(stat -c%s "$FINAL_VIDEO")"
-
-
-          AUDIO_CODEC="$(ffprobe \
-            -v error \
-            -select_streams a:0 \
-            -show_entries stream=codec_name \
-            -of default=noprint_wrappers=1:nokey=1 \
-            "$FINAL_VIDEO" || true)"
-
-
-          echo "Codec:        $CODEC"
-
-          echo "Width:        $WIDTH"
-
-          echo "Height:       $HEIGHT"
-
-          echo "FPS:          $FPS"
-
-          echo "Audio codec:  $AUDIO_CODEC"
-
-          echo "Duration:     $DURATION"
-
-          echo "Size:         $SIZE bytes"
-
-
-          echo ""
-
-
-          if [ "$CODEC" != "h264" ]; then
-
-            echo "ERROR: Expected H.264 video"
-
-            exit 1
-
-          fi
-
-
-          if [ "$WIDTH" != "1080" ]; then
-
-            echo "WARNING: Width is $WIDTH"
-
-          fi
-
-
-          if [ "$HEIGHT" != "1920" ]; then
-
-            echo "WARNING: Height is $HEIGHT"
-
-          fi
-
-
-          if [ "$SIZE" -le 0 ]; then
-
-            echo "ERROR: Video file is empty"
-
-            exit 1
-
-          fi
-
-
-          echo ""
-
-          echo "MP4 verification: SUCCESS"
-
-
-      # ======================================================
-      # UPLOAD VIDEO TO RENDER
-      # ======================================================
+      # ============================================================
+      # 15. Upload video to Render
+      # ============================================================
 
       - name: Upload video to Render
-
-        shell: bash
-
         working-directory: MoneyPrinterTurbo
-
+        shell: bash
         run: |
-
           set -e
 
-
-          echo "========================================"
-
-          echo "UPLOADING VIDEO TO RENDER"
-
-          echo "========================================"
-
-
-          echo "File:"
-
-          echo "$FINAL_VIDEO"
-
-          echo ""
-
-
-          ls -lh "$FINAL_VIDEO"
-
-          echo ""
-
+          echo "Uploading final video to Render..."
 
           RESPONSE="$(
             curl -sS -f \
@@ -892,209 +440,91 @@ jobs:
               --data-binary "@${FINAL_VIDEO}"
           )"
 
+          echo "Upload response received."
 
-          echo "Render response:"
+          OUTPUT_URL="$(
+            python3 -c '
+          import json
+          import sys
 
-          echo "$RESPONSE"
+          data = json.loads(sys.stdin.read())
 
+          if "output_url" not in data:
+              raise SystemExit("output_url missing from upload response")
 
-          echo "$RESPONSE" | grep -q '"ok":true'
-
-
-          OUTPUT_URL="/api/jobs/${JOB_ID}/video"
-
+          print(data["output_url"])
+          ' <<< "$RESPONSE"
+          )"
 
           echo "OUTPUT_URL=$OUTPUT_URL" >> "$GITHUB_ENV"
 
-
-          echo ""
-
           echo "Video uploaded successfully."
 
-          echo "Output URL: $OUTPUT_URL"
 
+      # ============================================================
+      # 16. Upload GitHub artifact
+      # ============================================================
 
-      # ======================================================
-      # CALLBACK - FINALIZING
-      # ======================================================
-
-      - name: Callback - Finalizing
-
-        shell: bash
-
-        run: |
-
-          set -e
-
-
-          if [ -z "$RENDER_CALLBACK_SECRET" ]; then
-
-            echo "WARNING: RENDER_CALLBACK_SECRET is not configured"
-
-            exit 0
-
-          fi
-
-
-          curl -sS -f -X POST \
-            "${RENDER_CALLBACK_URL}/api/worker/jobs/${JOB_ID}/callback" \
-            -H "Content-Type: application/json" \
-            -H "X-Callback-Secret: ${RENDER_CALLBACK_SECRET}" \
-            -d '{
-              "status": "processing",
-              "progress": 90,
-              "stage": "finalizing"
-            }'
-
-
-          echo ""
-
-          echo "Callback: 90% finalizing"
-
-
-      # ======================================================
-      # UPLOAD WORKER ARTIFACT
-      # ======================================================
-
-      - name: Upload worker artifact
-
-        uses: actions/upload-artifact@v6
-
+      - name: Upload final video artifact
+        uses: actions/upload-artifact@v4
         with:
-
-          name: mpt-worker-${{ github.run_id }}
-
-          path: |
-            MoneyPrinterTurbo/storage/tasks/**
-            MoneyPrinterTurbo/*.log
-
-          if-no-files-found: warn
-
-          retention-days: 3
-
-
-      # ======================================================
-      # UPLOAD TASK ARTIFACT
-      # ======================================================
-
-      - name: Upload task artifact
-
-        uses: actions/upload-artifact@v6
-
-        with:
-
-          name: mpt-task-${{ github.run_id }}
-
-          path: |
-            MoneyPrinterTurbo/storage/tasks/**/final-*.mp4
-
+          name: mpt-output-${{ github.run_number }}
+          path: MoneyPrinterTurbo/${{ env.FINAL_VIDEO }}
           if-no-files-found: error
 
-          retention-days: 3
 
-
-      # ======================================================
-      # CALLBACK - COMPLETED
-      # ======================================================
+      # ============================================================
+      # 17. Callback: completed
+      # ============================================================
 
       - name: Callback - Completed
-
-        if: success()
-
         shell: bash
-
         run: |
-
           set -e
 
-
-          if [ -z "$RENDER_CALLBACK_SECRET" ]; then
-
-            echo "ERROR: RENDER_CALLBACK_SECRET is not configured"
-
-            exit 1
-
-          fi
-
-
-          curl -sS -f -X POST \
+          curl -sS -f \
+            -X POST \
             "${RENDER_CALLBACK_URL}/api/worker/jobs/${JOB_ID}/callback" \
             -H "Content-Type: application/json" \
             -H "X-Callback-Secret: ${RENDER_CALLBACK_SECRET}" \
-            -d "{
+            --data "{
               \"status\": \"completed\",
               \"progress\": 100,
               \"stage\": \"completed\",
               \"output_url\": \"${RENDER_CALLBACK_URL}${OUTPUT_URL}\"
             }"
 
-
+          echo "=========================================="
+          echo "MPT PIXABAY WORKER — SUCCESS"
+          echo "=========================================="
+          echo "JOB_ID:"
+          echo "$JOB_ID"
           echo ""
+          echo "OUTPUT:"
+          echo "${RENDER_CALLBACK_URL}${OUTPUT_URL}"
+          echo "=========================================="
 
 
-          echo "========================================"
-
-          echo "MPT WORKER v1 — SUCCESS"
-
-          echo "========================================"
-
-
-          echo "Job ID:    $JOB_ID"
-
-          echo "Subject:   $VIDEO_SUBJECT"
-
-          echo "Aspect:    $ASPECT"
-
-          echo "Count:     $VIDEO_COUNT"
-
-          echo "Video:     $FINAL_VIDEO"
-
-          echo "Output:    ${RENDER_CALLBACK_URL}${OUTPUT_URL}"
-
-          echo "Status:    COMPLETED"
-
-
-          echo "========================================"
-
-
-      # ======================================================
-      # CALLBACK - FAILED
-      # ======================================================
+      # ============================================================
+      # 18. Callback: failed
+      # ============================================================
 
       - name: Callback - Failed
-
         if: failure()
-
         shell: bash
-
         run: |
-
           set +e
 
-
-          if [ -z "$RENDER_CALLBACK_SECRET" ]; then
-
-            echo "RENDER_CALLBACK_SECRET is not configured"
-
-            exit 0
-
-          fi
-
-
-          curl -sS -X POST \
+          curl -sS \
+            -X POST \
             "${RENDER_CALLBACK_URL}/api/worker/jobs/${JOB_ID}/callback" \
             -H "Content-Type: application/json" \
             -H "X-Callback-Secret: ${RENDER_CALLBACK_SECRET}" \
-            -d '{
+            --data '{
               "status": "failed",
               "progress": 100,
               "stage": "failed",
-              "error": "GitHub MPT Worker failed"
+              "error": "GitHub MPT Pixabay Worker failed"
             }'
 
-
-          echo ""
-
-          echo "Callback: FAILED"
-
-          echo "Job ID: $JOB_ID"
+          echo "Worker failed."
