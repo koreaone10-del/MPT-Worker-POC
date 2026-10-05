@@ -303,14 +303,6 @@ jobs:
           # FONT
           # ------------------------------------------------------------
 
-          # Arabic gets a real Arabic font.
-          #
-          # English/French keep a normal Noto Sans font.
-          #
-          # This is the FIRST main fix:
-          # Arabic subtitles will no longer use the default font
-          # that caused the square boxes.
-
           if language == "ar":
               font_name = "NotoSansArabicUI-Regular.ttf"
               words_per_second = 2.0
@@ -441,20 +433,38 @@ jobs:
               paragraph_number = 3
 
           # ------------------------------------------------------------
-          # WRITE TO GITHUB ENV
+          # WRITE VARIABLES TO GITHUB_ENV
+          #
+          # IMPORTANT:
+          # These MUST be written to $GITHUB_ENV.
+          # They become available in the NEXT GitHub Actions step.
           # ------------------------------------------------------------
 
           def write_env(name, value):
               value = str(value)
               delimiter = f"GHENV_{name}_END"
 
-              print(
-                  f"{name}<<{delimiter}"
-              )
+              with open(
+                  os.environ["GITHUB_ENV"],
+                  "a",
+                  encoding="utf-8"
+              ) as env_file:
 
-              print(value)
+                  env_file.write(
+                      f"{name}<<{delimiter}\n"
+                  )
 
-              print(delimiter)
+                  env_file.write(
+                      value
+                  )
+
+                  env_file.write(
+                      "\n"
+                  )
+
+                  env_file.write(
+                      f"{delimiter}\n"
+                  )
 
           write_env(
               "JOB_ID",
@@ -540,29 +550,29 @@ jobs:
               "USER_SCRIPT",
               script
           )
-          PY
 
-          test -n "${JOB_ID}"
-          test -n "${VIDEO_SUBJECT}"
+          # ------------------------------------------------------------
+          # LOCAL VALIDATION
+          #
+          # Do NOT reference shell variables here.
+          # The values are intentionally exported for the next step.
+          # ------------------------------------------------------------
 
-          case "${VIDEO_ASPECT}" in
-            9:16|16:9|1:1)
-              ;;
-            *)
-              echo "Invalid aspect: ${VIDEO_ASPECT}"
-              exit 1
-              ;;
-          esac
+          if not job_id:
+              raise SystemExit("Missing JOB_ID")
 
-          case "${TARGET_DURATION}" in
-            30|45|60|90|120)
-              ;;
-            *)
-              echo "Invalid duration: ${TARGET_DURATION}"
-              exit 1
-              ;;
-          esac
+          if not subject:
+              raise SystemExit("Missing VIDEO_SUBJECT")
 
+          print("Job variables prepared successfully.")
+          print(f"JOB_ID: {job_id}")
+          print(f"SUBJECT: {subject}")
+          print(f"ASPECT: {aspect}")
+          print(f"LANGUAGE: {video_language}")
+          print(f"DURATION: {duration}")
+          print(f"VOICE: {voice_name}")
+          print(f"SUBTITLES: {subtitle_enabled}")
+          print(f"FONT: {font_name}")
 
       # ============================================================
       # 3. CALLBACK
@@ -602,11 +612,9 @@ jobs:
 
           mkdir -p /tmp/mpt-fonts
 
-          # Verify Arabic font exists.
           test -f \
             /usr/share/fonts/truetype/noto/NotoSansArabicUI-Regular.ttf
 
-          # Verify normal Latin font exists.
           test -f \
             /usr/share/fonts/truetype/noto/NotoSans-Regular.ttf
 
@@ -787,10 +795,6 @@ jobs:
           ).strip()
 
           task = {
-              # ------------------------------------------------------
-              # CORE
-              # ------------------------------------------------------
-
               "video_subject":
                   os.environ["VIDEO_SUBJECT"],
 
@@ -806,19 +810,11 @@ jobs:
               "video_language":
                   os.environ["VIDEO_LANGUAGE"],
 
-              # ------------------------------------------------------
-              # SCRIPT
-              # ------------------------------------------------------
-
               "paragraph_number":
                   int(os.environ["PARAGRAPH_NUMBER"]),
 
               "video_script_prompt":
                   os.environ["SCRIPT_PROMPT"],
-
-              # ------------------------------------------------------
-              # MATERIAL MATCHING
-              # ------------------------------------------------------
 
               "video_concat_mode":
                   "sequential",
@@ -841,10 +837,6 @@ jobs:
               "n_threads":
                   2,
 
-              # ------------------------------------------------------
-              # VOICE
-              # ------------------------------------------------------
-
               "voice_name":
                   os.environ["VOICE_NAME"],
 
@@ -853,10 +845,6 @@ jobs:
 
               "voice_rate":
                   1.0,
-
-              # ------------------------------------------------------
-              # MUSIC
-              # ------------------------------------------------------
 
               "bgm_type":
                   os.environ["BGM_TYPE"],
@@ -867,22 +855,12 @@ jobs:
               "bgm_volume":
                   0.15,
 
-              # ------------------------------------------------------
-              # SUBTITLES
-              # ------------------------------------------------------
-
               "subtitle_enabled":
                   os.environ["SUBTITLE_ENABLED"].lower() == "true",
 
               "font_name":
                   os.environ["FONT_NAME"],
           }
-
-          # ----------------------------------------------------------
-          # IMPORTANT:
-          # If the user supplied a complete script, keep it.
-          # Otherwise MPT generates one using video_script_prompt.
-          # ----------------------------------------------------------
 
           if user_script:
               task["video_script"] = user_script
