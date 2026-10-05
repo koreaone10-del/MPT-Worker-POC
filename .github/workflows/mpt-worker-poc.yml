@@ -70,7 +70,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install --no-cache-dir -r requirements.txt
 
-      - name: MPT smoke test
+            - name: MPT smoke test
         if: ${{ inputs.run_mpt_smoke }}
         run: |
           cd mpt
@@ -79,7 +79,12 @@ jobs:
           python --version
 
           echo "===== FFmpeg ====="
+          which ffmpeg
           ffmpeg -version | head -n 1
+
+          echo "===== FFprobe ====="
+          which ffprobe
+          ffprobe -version | head -n 1
 
           echo "===== MPT files ====="
           ls -la
@@ -92,10 +97,18 @@ jobs:
           import requests
           print("requests: OK")
 
-          import ffmpeg
-          print("ffmpeg-python: OK")
+          import moviepy
+          print("moviepy:", moviepy.__version__)
 
-          print("MPT dependency smoke test: OK")
+          import fastapi
+          print("fastapi: OK")
+
+          import streamlit
+          print("streamlit: OK")
+
+          print("================================")
+          print("MPT DEPENDENCY SMOKE TEST: OK")
+          print("================================")
           PY
 
       - name: Final resource snapshot
